@@ -1,0 +1,50 @@
+data:
+  task: segmentation
+  class: eptdataset.EptDataset
+
+  grid_size: 0.5
+  num_classes: 2 # ground and nonground
+  datasets:
+    - dataset: ahn
+      ignore_classes: []
+      filter_classes: [1]
+      train_classes: [2]
+      class_map_from: [9]
+      class_map_to:   [2]
+      
+  # weight_classes: [1,1] #[ignoreClass, otherClass, train_class[0], train_class[1], ...]
+  
+  train_transforms:
+    - transform: XYZFeature
+      params:
+        add_x: True
+        add_y: True
+        add_z: True
+    - transform: AddFeatsByKeys
+      params:
+        list_add_to_x: [True, True, True]
+        feat_names: [pos_z, pos_x, pos_y]
+        delete_feats: [True, True, True]
+    - transform: GridSampling3D
+      params:
+        size: ${data.grid_size}
+        quantize_coords: True
+        mode: "last"
+  test_transform:
+    - transform: SaveOriginalPosId
+    - transform: XYZFeature
+      params:
+        add_x: True
+        add_y: True
+        add_z: True
+    - transform: AddFeatsByKeys
+      params:
+        list_add_to_x: [True, True, True]
+        feat_names: [pos_z, pos_x, pos_y]
+        delete_feats: [True, True, True]
+    - transform: GridSampling3D
+      params:
+        size: ${data.grid_size}
+        quantize_coords: True
+        mode: "last"
+  val_transform: ${data.test_transform}
