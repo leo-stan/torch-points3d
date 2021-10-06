@@ -1,37 +1,34 @@
 data:
   task: segmentation
   class: copc_dataset.CopcDataset
-
+  dataroot: data
+  is_inference: False
   resolution: 0.5
+  dataset_version: 1
   number_of_sample_per_epoch: -1  # Number of random sample per epoch, -1 for all samples
-  classes: [2]
-  classes_weight: [1] #[ignoreClass, otherClass, train_class[0], train_class[1], ...]
   datasets:
-#    - dataset: name
-#        sampling_rate: # How often this dataset get selected to draw samples (0=never, 1=same probability as other datasets)
-#        classification_map:
-#          ignore_classes: [ ] # Classes for which we don't update the loss for but do not remove the points
-#          filter_classes: [ ] # Classes for which we remove the points before passing to model
-#          class_map_from_to: [ ] # Map classes [from,to]
-    - dataset: lux
-      sampling_rate:
+    #    - dataset: name
+    #        sampling_rate: # How often this dataset get selected to draw samples (0=never, 1=same probability as other datasets)
+    #        classification_map:
+    #          ignore_classes: [ ] # Classes for which we don't update the loss for but do not remove the points
+    #          filter_classes: [ ] # Classes for which we remove the points before passing to model
+    #          class_map_from_to: [[from,to],[from,to],[from,to],...] # Map classes [from,to]
+    - dataset: autzen
+      sampling_rate: 1
+      classes: [2]
       classification_map:
-        ignore_classes: []
-        filter_classes: []
-        class_map_from_to: []
-    - dataset: sasche
-      sampling_rate:
+      ignore_classes: []
+      filter_classes: []
+      class_map_from_to: []
+    - dataset: autzen2
+      sampling_rate: 0.5
+      classes: [2]
       classification_map:
-        ignore_classes: []
-        filter_classes: []
-        class_map_from_to: []
-    - dataset: tyrol
-      sampling_rate:
-      classification_map:
-        ignore_classes: []
-        filter_classes: []
-        class_map_from_to: []
-  training_classes: []
+      ignore_classes: [ ]
+      filter_classes: [ ]
+      class_map_from_to: [ ]
+  training_classes: [1]
+  training_classes_weights: [1] #[ignoreClass, otherClass, train_class[0], train_class[1], ...]
 
   train_transforms:
     - transform: XYZFeature

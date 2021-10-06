@@ -6,8 +6,8 @@ import copclib as copc
 from joblib import Parallel, delayed
 
 resolution = 0.5
-datasets = ["lux", "sasche", "tyrol"]
-path = "/media/nvme/pcdata"
+datasets = ["autzen"]
+path = "/home/leo/kios/rock_robotic/torch-points3d/data"
 splits = {'train': 0.8, 'val': 0.1, 'test': 0.1}
 version = "v1"
 
