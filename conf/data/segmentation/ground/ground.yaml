@@ -17,16 +17,16 @@ data:
       sampling_rate: 1
       classes: [2]
       classification_map:
-      ignore_classes: []
-      filter_classes: []
-      class_map_from_to: []
+        ignore_classes: []
+        filter_classes: []
+        class_map_from_to: []
     - dataset: autzen2
       sampling_rate: 0.5
       classes: [2]
       classification_map:
-      ignore_classes: [ ]
-      filter_classes: [ ]
-      class_map_from_to: [ ]
+        ignore_classes: [ ]
+        filter_classes: [ ]
+        class_map_from_to: [ ]
   training_classes: [1]
   training_classes_weights: [1] #[ignoreClass, otherClass, train_class[0], train_class[1], ...]
 

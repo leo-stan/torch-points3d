@@ -10,6 +10,7 @@ import numpy as np
 import os
 import json
 import glob
+from sys import float_info
 
 
 class CopcInternalDataset(torch.utils.data.Dataset):
@@ -24,9 +25,9 @@ class CopcInternalDataset(torch.utils.data.Dataset):
 
         # Compute total number of samples
         self.nb_samples = 0
-        for splits in samples.items():
-            for split in splits.items():
-                self.nb_samples += len(split)
+        for _, splits in samples.items():
+            for _, keys in splits.items():
+                self.nb_samples += len(keys)
 
         self.class_maps = class_maps
         self.is_inference = is_inference
@@ -59,13 +60,17 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         sample = np.random.choice(self.samples[dataset][split].items(), len(self.samples[dataset][split].items()))
 
         reader = copc.Reader(os.path.join(self.root,dataset,split,"octree.copc.laz"))
+        header = reader.GetLasHeader()
 
         max_depth = reader.GetDepthOfResolution(self.resolution)
-        bounds = copc.Box(sample.insert(0, max_depth))
+        # Fill z as 0, since we don't care about that dimension
+        bounds = copc.Box(sample.append(0), header)
+        # Make the tile 2D
+        bounds.z_min = float_info.min
+        bounds.z_max = float_info.max
 
+        # If we're doing inference we need to track where the points came from
         if self.is_inference:
-
-
             all_points = []  # Nx3
             all_points_key = []  # N
             all_points_idx = []  # N
@@ -91,6 +96,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
             points_idx = np.asarray([point_idx for sublist in all_points_idx for point_idx in sublist])
             classification = np.asarray([point.Classification for sublist in all_points for point in sublist])
 
+        # If training we can just grab points without tracking
         else:
             copc_points = reader.GetPointsWithinBox(bounds)
             points = np.stack([copc_points.X, copc_points.Y, copc_points.Z], axis=1)
@@ -178,36 +184,42 @@ class CopcDataset(BaseDataset):
         super().__init__(dataset_opt)
 
         if not dataset_opt.is_inference:
+            train_samples = {}
+            val_samples = {}
+            test_samples = {}
             class_maps = {}
-            splits = {}
-            datasets = []
             dataset_sampling_rates = []
             for dataset in dataset_opt.datasets:
-                datasets.append(os.path.join(dataset_opt.dataroot,dataset.dataset))
                 dataset_sampling_rates.append(dataset.sampling_rate)
                 class_maps[dataset] = dict(dataset.classification_map.class_map_from_to)
-                with open(os.path.join(dataset_opt.dataroot, dataset.dataset, "copc/splits-v%d.json" % (dataset.version))) as fp:
-                    splits[dataset] = json.load(fp)
+                with open(os.path.join(dataset_opt.dataroot, dataset.dataset, "copc/splits-v%d.json" % (dataset_opt.dataset_version))) as fp:
+                    splits = json.load(fp)
+
+                # Training samples
+                train_samples[dataset.dataset] = splits["train"]
+                val_samples[dataset.dataset] = splits["val"]
+                test_samples[dataset.dataset] = splits["test"]
+
 
             self.train_dataset = CopcInternalDataset(
                 root=dataset_opt.dataroot,
-                samples={},  # TODO
+                samples=train_samples,
                 transform=self.train_transform,
-                train_classes=dataset_opt.train_classes,
+                train_classes=dataset_opt.training_classes,
                 resolution=dataset_opt.resolution,
                 dataset_sampling_rates= dataset_sampling_rates,
                 class_maps = class_maps,
                 donotcare_class_ids=dataset_opt.donotcare_class_ids,
                 do_augment=dataset_opt.do_augment,
                 do_shift=dataset_opt.do_shift,
-                augment_transform=instantiate_transforms(dataset_opt.augment),
+                # augment_transform=instantiate_transforms(dataset_opt.augment),
                 train_classes_weights=dataset_opt.training_classes_weights,)
 
             self.val_dataset = CopcInternalDataset(
                 root=dataset_opt.dataroot,
-                samples={},  # TODO
+                samples=val_samples,
                 transform=self.val_transform,
-                train_classes=dataset_opt.train_classes,
+                train_classes=dataset_opt.training_classes,
                 resolution=dataset_opt.resolution,
                 dataset_sampling_rates=dataset_sampling_rates,
                 class_maps=class_maps,
@@ -219,9 +231,9 @@ class CopcDataset(BaseDataset):
 
             self.test_dataset = CopcInternalDataset(
                 root=dataset_opt.dataroot,
-                samples={},  # TODO
+                samples=test_samples,
                 transform=self.test_transform,
-                train_classes=dataset_opt.train_classes,
+                train_classes=dataset_opt.training_classes,
                 resolution=dataset_opt.resolution,
                 dataset_sampling_rates=dataset_sampling_rates,
                 class_maps=class_maps,
