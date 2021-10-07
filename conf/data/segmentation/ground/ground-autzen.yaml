@@ -1,8 +1,8 @@
 data:
   task: segmentation
   class: copc_dataset.CopcDataset
-  dataroot: /media/nvme/pcdata
-  is_inference: False
+  dataroot: data
+  is_inference: True
   resolution: 0.5
   dataset_version: 1
   number_of_sample_per_epoch: -1  # Number of random sample per epoch, -1 for all samples

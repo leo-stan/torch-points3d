@@ -67,7 +67,6 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         sample = np.random.choice(list(self.samples[dset_name]))
         dataset = self.datasets[dset_name]
 
-
         reader = copc.FileReader(os.path.join(self.root,dset_name,"copc",sample.file,"octree.copc.laz"))
         header = reader.GetLasHeader()
 
@@ -78,72 +77,65 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         # Make the tile 2D
         sample_bounds.z_min = float_info.min
         sample_bounds.z_max = float_info.max
+        max_depth = reader.GetDepthAtResolution(self.resolution)
 
-        # If we're doing inference we need to track where the points came from
-        if self.is_inference:
-            pass
-            # TODO [Leo]: REDO this for new splits
-            # all_points = []  # Nx3
-            # all_points_key = []  # N
-            # all_points_idx = []  # N
-            # # for depth in range(max_depth):
-            # nodes = reader.GetNodesIntersectBox(sample_bounds, resolution=self.resolution)
-            # if len(nodes) != max_depth+1:
-            #     raise Exception("More nodes than depth levels.")
-            # for node in nodes:
-            #     points = reader.GetPoints(node)
-            #     node_points_within_bounds_idx = []
-            #     node_points_within_bounds = []
-            #     for id, point in enumerate(points):
-            #         if point.Within(sample[1]):
-            #             node_points_within_bounds_idx.append(id)
-            #             node_points_within_bounds.append(point)
-            #
-            #     all_points.append(node_points_within_bounds)
-            #     all_points_key.append([node.key] * len(node_points_within_bounds))
-            #     all_points_idx.append(node_points_within_bounds_idx)
-            # # Stack X,Y,Z
-            # points = np.stack([[point.X for sublist in all_points for point in sublist], [point.Y for sublist in all_points for point in sublist], [point.Z for sublist in all_points for point in sublist]], axis=1)
-            # points_key = np.asarray([node_idx for sublist in all_points_key for node_idx in sublist])
-            # points_idx = np.asarray([point_idx for sublist in all_points_idx for point_idx in sublist])
-            # classification = np.asarray([point.Classification for sublist in all_points for point in sublist])
+        # Test possible Zs to see if key exist
+        valid_keys = set()
+        for z in sample.z:
+            key = copc.VoxelKey(nearest_depth,x,y,z)
+            node = reader.FindNode(key)
 
-        # If training we can just grab points without tracking
-        else:
-            # Test possible Zs to see if key exist self.samples[dataset][split][sample]
-            valid_keys = set()
-            for z in sample.z:
-                key = copc.VoxelKey(nearest_depth,x,y,z)
+            while not node.IsValid() and key.IsValid():
+                key = key.GetParent()
                 node = reader.FindNode(key)
+            if node.IsValid():
+                valid_keys.add(key)
 
-                while not node.IsValid() and key.IsValid():
-                    key = key.GetParent()
-                    node = reader.FindNode(key)
-                if node.IsValid():
-                    valid_keys.add(key)
+        # Process keys that exist
+        copc_points = copc.Points(header)
+        points_key = []
+        points_idx = []
+        points_file = []
+        loaded_keys = set()
 
-            # Process keys that exist
-            copc_points = copc.Points(header)
-            loaded_keys = set()
+        for key in valid_keys:
+            if key.d == nearest_depth:
+                # Get all children points (these will automatically fit within sample_bounds)
+                for node in reader.GetAllChildren(key):
+                    if node.key.depth <= max_depth:
+                        node_points = reader.GetPoints(node)
+                        copc_points.AddPoints(node_points)
+                        if self.is_inference:
+                            for i in range(len(node_points)):
+                                points_key.append((node.key.d,node.key.x,node.key.y,node.key.z))
+                                points_file.append(os.path.join(self.root,dset_name,"copc",sample.file,"octree.copc.laz"))
+                                points_idx.append(i)
 
-            for key in valid_keys:
-                if key.d == nearest_depth:
-                    # Get all children points (these will automatically fit
-                    copc_points.AddPoints(reader.GetAllChildrenPoints(key, self.resolution))
-                    
-                while key.IsValid() and key not in loaded_keys:
+            while key.IsValid() and key not in loaded_keys:
+                if self.is_inference:
+                    node_points = reader.GetPoints(key)
+                    for i,point in enumerate(node_points):
+                        if point.Within(sample_bounds):
+                            copc_points.AddPoint(point)
+                            points_key.append((key.d,key.x,key.y,key.z))
+                            points_file.append(os.path.join(self.root,dset_name,"copc",sample.file,"octree.copc.laz"))
+                            points_idx.append(i)
+                else:
                     copc_points.AddPoints(reader.GetPoints(key).GetWithin(sample_bounds))
-                    loaded_keys.add(key)
-                    key = key.GetParent()
+                loaded_keys.add(key)
+                key = key.GetParent()
 
-            points = np.stack([copc_points.X, copc_points.Y, copc_points.Z], axis=1)
-            classification = np.array(copc_points.Classification).astype(np.int)
+        points = np.stack([copc_points.X, copc_points.Y, copc_points.Z], axis=1) # Nx3
+        points_key = np.asarray(points_key)  # N
+        points_idx = np.asarray(points_idx)  # N
+        points_file = np.asarray(points_file)  # N
 
-            if (len(points) == 0):
-                # if there's no points in this sample, just get another sample:
-                return self[0]
+        classification = np.array(copc_points.Classification).astype(np.int)
+
+        if len(points) == 0:
+            # if there's no points in this sample, just get another sample:
+            return self[0]
         
-        #if len(self.class_maps[dataset]):
         x_min = np.min(points[:,0])
         y_min = np.min(points[:,1])
         x_max = np.max(points[:,0])
@@ -168,7 +160,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
             points = points[mask]
         y = self._remap_labels(y, dataset)
 
-        data = Data(pos=torch.from_numpy(points).type(torch.float), y=y)
+        data = Data(pos=torch.from_numpy(points).type(torch.float), y=y, points_key=points_key, points_idx=points_idx, points_file=points_file)
 
         if self.is_inference:
             data = SaveOriginalPosId()(data)
@@ -232,18 +224,18 @@ class CopcDataset(BaseDataset):
         super().__init__(dataset_opt)
 
         splits = {"train": {}, "test": {}, "val": {}}
-        if not dataset_opt.is_inference:            
-            for dset_name, dataset in dataset_opt.datasets.items():
-                with open(os.path.join(dataset_opt.dataroot, dset_name, "copc/splits-v%d.json" % (dataset_opt.dataset_version))) as fp:
-                    dset_splits = json.load(fp)
+        for dset_name, dataset in dataset_opt.datasets.items():
+            with open(os.path.join(dataset_opt.dataroot, dset_name, "copc/splits-v%d.json" % (dataset_opt.dataset_version))) as fp:
+                dset_splits = json.load(fp)
 
-                for split in splits.keys():
-                    splits[split][dset_name] = []
-                    for file_name, file_items in dset_splits[split].items():
-                        for dxy, z_list in file_items.items():
-                            d, x, y  = ast.literal_eval(dxy)
-                            splits[split][dset_name].append(DatasetSample(file=file_name, depth=d, x=x, y=y, z=z_list))
-                
+            for split in splits.keys():
+                splits[split][dset_name] = []
+                for file_name, file_items in dset_splits[split].items():
+                    for dxy, z_list in file_items.items():
+                        d, x, y  = ast.literal_eval(dxy)
+                        splits[split][dset_name].append(DatasetSample(file=file_name, depth=d, x=x, y=y, z=z_list))
+
+        if not dataset_opt.is_inference:
             self.train_dataset = CopcInternalDataset(
                 root=dataset_opt.dataroot,
                 split="train",
@@ -286,15 +278,17 @@ class CopcDataset(BaseDataset):
         else:
 
             self.test_dataset = CopcInternalDataset(
-                dataset_opt.dataroot,
-                samples= {}, #TODO
+                root=dataset_opt.dataroot,
+                split="inference",
+                samples=splits["test"],
+                datasets=dataset_opt.datasets,
+                train_classes=dataset_opt.training_classes,
+                number_of_sample_per_epoch=-1,
+                is_inference=True,
                 transform=self.test_transform,
                 resolution=dataset_opt.resolution,
-                is_inference=True,
                 do_augment=False,
-                hUnits=20,
-                vUnits=20,
-                do_shift=dataset_opt.do_shift,
+                do_shift=dataset_opt.do_shift
             )
 
     def get_tracker(self, wandb_log: bool, tensorboard_log: bool):
