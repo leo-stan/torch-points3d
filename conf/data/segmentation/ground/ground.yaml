@@ -1,34 +1,24 @@
 data:
   task: segmentation
   class: copc_dataset.CopcDataset
-  dataroot: data
+  dataroot: /media/nvme/pcdata
   is_inference: False
   resolution: 0.5
   dataset_version: 1
   number_of_sample_per_epoch: -1  # Number of random sample per epoch, -1 for all samples
   datasets:
-    #    - dataset: name
+    #    - name: name
     #        sampling_rate: # How often this dataset get selected to draw samples (0=never, 1=same probability as other datasets)
-    #        classification_map:
-    #          ignore_classes: [ ] # Classes for which we don't update the loss for but do not remove the points
-    #          filter_classes: [ ] # Classes for which we remove the points before passing to model
-    #          class_map_from_to: [[from,to],[from,to],[from,to],...] # Map classes [from,to]
-    - dataset: autzen
+    #        ignore_classes: [ ] # Classes for which we don't update the loss for but do not remove the points
+    #        filter_classes: [ ] # Classes for which we remove the points before passing to model
+    #        class_map_from_to: [[from,to],[from,to],[from,to],...] # Map classes [from,to]
+    autzen:
       sampling_rate: 1
-      classes: [2]
-      classification_map:
-        ignore_classes: []
-        filter_classes: []
-        class_map_from_to: []
-    - dataset: autzen2
-      sampling_rate: 0.5
-      classes: [2]
-      classification_map:
-        ignore_classes: [ ]
-        filter_classes: [ ]
-        class_map_from_to: [ ]
-  training_classes: [1]
-  training_classes_weights: [1] #[ignoreClass, otherClass, train_class[0], train_class[1], ...]
+      ignore_classes: []
+      filter_classes: []
+      class_map_from_to: []
+  training_classes: [2]
+  training_classes_weights: [1, 1] #[otherClass, train_class[0], train_class[1], ...]
 
   train_transforms:
     - transform: XYZFeature
@@ -43,7 +33,7 @@ data:
         delete_feats: [True, True, True]
     - transform: GridSampling3D
       params:
-        size: ${data.grid_size}
+        size: ${data.resolution}
         quantize_coords: True
         mode: "last"
   test_transform:
@@ -60,7 +50,7 @@ data:
         delete_feats: [True, True, True]
     - transform: GridSampling3D
       params:
-        size: ${data.grid_size}
+        size: ${data.resolution}
         quantize_coords: True
         mode: "last"
   val_transform: ${data.test_transform}

@@ -1,4 +1,6 @@
 import torch
+from dataclasses import dataclass
+import ast
 
 from torch_geometric.data import Dataset, Data
 from torch_points3d.datasets.base_dataset import BaseDataset
@@ -13,9 +15,16 @@ import glob
 from sys import float_info
 import re
 
+@dataclass
+class DatasetSample:
+    file: str
+    depth: int
+    x: int
+    y: int
+    z: list
 
 class CopcInternalDataset(torch.utils.data.Dataset):
-    def __init__(self, root, samples, transform, train_classes, resolution, dataset_sampling_rates=[], class_maps={}, is_inference=False, donotcare_class_ids=[], do_augment=False, do_shift=False, augment_transform=None, train_classes_weights=None):
+    def __init__(self, root, split, samples, transform, train_classes, resolution, datasets, hUnits=1.0, vUnits=1.0, number_of_sample_per_epoch=-1, is_inference=False, do_augment=False, do_shift=False, augment_transform=None, train_classes_weights=None):
 
         self.root = root
         self.samples = samples
@@ -25,51 +34,45 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         # for dataset in samples.keys():
 
         # Compute total number of samples
-        self.nb_samples = 0
-        for _, splits in samples.items():
-            for _, keys in splits.items():
-                self.nb_samples += len(keys)
+        if number_of_sample_per_epoch >= 0:
+            self.nb_samples = number_of_sample_per_epoch
+        else:
+            self.nb_samples = sum([len(dset_samples) for dset_samples in self.samples.values()])
 
-        self.class_maps = class_maps
+        dataset_sampling_rates = [x.sampling_rate for x in datasets.values()]
+        self.dataset_sampling_rates = dataset_sampling_rates/np.sum(dataset_sampling_rates) # probably of drawing samples from each dataset, sum to 1
+
         self.is_inference = is_inference
         self.resolution = resolution
         self.transform = transform
         self.train_classes = train_classes
-        if len(dataset_sampling_rates) > 0 and (len(dataset_sampling_rates) != len(samples.keys())):
-            raise Exception("Number of sampling rates must match number of datasets.")
-        self.dataset_sampling_rates = dataset_sampling_rates/np.sum(dataset_sampling_rates) # probably of drawing samples from each dataset, sum to 1
-        self.donotcare_class_ids = donotcare_class_ids
-        self.hunits = 1.0
-        self.vunits = 1.0
+        self.hUnits = hUnits
+        self.vUnits = vUnits
         self.do_augment = do_augment
         self.do_shift = do_shift
         self.augment_transform = augment_transform
-        self.train_classes_weights = torch.Tensor(train_classes_weights)
-
-    # def _map_idx_to_sample(self, idx):
+        self.datasets = datasets
+        
+        if split == "train":
+            self.weight_classes = torch.Tensor(train_classes_weights)
 
     def __len__(self):
         return self.nb_samples
 
     def __getitem__(self, idx):
 
-        # Draw a data sample, either randomly or with dataset sample rates
-        if not self.is_inference & len(self.dataset_sampling_rates) > 0:
-            dataset = np.random.choice(list(self.samples.keys()), p=self.dataset_sampling_rates)
-        else:
-            dataset = np.random.choice(self.samples.keys(), len(self.samples.keys()))
-
-        split = np.random.choice(list(self.samples[dataset].keys()))
-        sample = np.random.choice(list(self.samples[dataset][split].keys()))
+        # randomly choose a dataset
+        dset_name = np.random.choice(list(self.samples.keys()), p=self.dataset_sampling_rates)
+        # randomly choose a sample
+        sample = np.random.choice(list(self.samples[dset_name]))
+        dataset = self.datasets[dset_name]
 
 
-        reader = copc.FileReader(os.path.join(self.root,dataset,"copc",split,"octree.copc.laz"))
+        reader = copc.FileReader(os.path.join(self.root,dset_name,"copc",sample.file,"octree.copc.laz"))
         header = reader.GetLasHeader()
 
         # Extract nearest depth, x, and y from sample
-        nearest_depth, x, y = re.findall(r'\b\d+\b', sample)
-        nearest_depth, x, y = int(nearest_depth), int(x), int(y)
-        max_depth = reader.GetDepthAtResolution(self.resolution)
+        nearest_depth, x, y = sample.depth, sample.x, sample.y
         # Fill z as 0, since we don't care about that dimension
         sample_bounds = copc.Box(copc.VoxelKey(nearest_depth,x,y,0), header)
         # Make the tile 2D
@@ -108,8 +111,8 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         # If training we can just grab points without tracking
         else:
             # Test possible Zs to see if key exist self.samples[dataset][split][sample]
-            valid_nodes = []
-            for z in self.samples[dataset][split][sample]:
+            valid_keys = set()
+            for z in sample.z:
                 key = copc.VoxelKey(nearest_depth,x,y,z)
                 node = reader.FindNode(key)
 
@@ -117,33 +120,30 @@ class CopcInternalDataset(torch.utils.data.Dataset):
                     key = key.GetParent()
                     node = reader.FindNode(key)
                 if node.IsValid():
-                    valid_nodes.append(node)
-
-            # Check whether points exist within the x/y region
-            # points_xy = reader.GetPointsWithinBox(sample_bounds)
+                    valid_keys.add(key)
 
             # Process keys that exist
             copc_points = copc.Points(header)
-            loaded_keys = [] # Makes sure we don't load the same key twice
-            for node in valid_nodes:
-                if node.key.d == nearest_depth:
+            # valid_keys = {copc.VoxelKey(4,11,5,0)}
+
+            for key in valid_keys:
+                if key.d == nearest_depth:
                     # Get all children points (these will automatically fit
-                    copc_points.AddPoints(reader.GetAllChildrenPoints(node.key, self.resolution))
-                key = node.key
-                while key.IsValid() and key not in loaded_keys:
+                    copc_points.AddPoints(reader.GetAllChildrenPoints(key, self.resolution))
+                    
+                while key.IsValid():
                     copc_points.AddPoints(reader.GetPoints(key).GetWithin(sample_bounds))
-                    loaded_keys.append(key)
                     key = key.GetParent()
 
             points = np.stack([copc_points.X, copc_points.Y, copc_points.Z], axis=1)
-            points_key = []
-            points_idx = []
             classification = np.array(copc_points.Classification).astype(np.int)
-
-        y = torch.from_numpy(classification)
-        if len(self.class_maps[dataset]):
-            y = self._remap_labels(y, self.class_maps[dataset])
-
+            if (len(points) == 0):
+                print(nearest_depth,x,y,z)
+                print(valid_keys)
+                print(sample)
+        
+        #if len(self.class_maps[dataset]):
+        print(points.shape)
         x_min = np.min(points[:,0])
         y_min = np.min(points[:,1])
         x_max = np.max(points[:,0])
@@ -157,6 +157,16 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         # Z centering using mean
         z_mean = np.mean(points[:, 2])
         points[:,2] -= int(z_mean)
+
+        points[:,:2] *= self.hUnits
+        points[:,2] *= self.vUnits
+
+        y = torch.from_numpy(classification)
+        for filter in dataset.filter_classes:
+            mask = y != filter
+            y = y[mask]
+            points = points[mask]
+        y = self._remap_labels(y, dataset)
 
         data = Data(pos=torch.from_numpy(points).type(torch.float), y=y)
 
@@ -174,33 +184,34 @@ class CopcInternalDataset(torch.utils.data.Dataset):
 
         return data
 
-    def _remap_labels(self, labels, class_map):
-        NUM_CLASSES = 100 # arbitrary
+    def _remap_labels(self, labels, dataset):
+        NUM_CLASSES = 256 # arbitrary
         """Remaps labels to [0 ; num_labels -1]. Can be overriden."""
         new_labels = labels.clone()
 
         # first map using the class_map
+        mapping_dict = {f: t for f, t in dataset.class_map_from_to}
         for idx in range(NUM_CLASSES):
-            if idx not in class_map:
-                class_map[idx] = 0
+            if idx not in mapping_dict:
+                mapping_dict[idx] = 0
 
         # add identity mappings for each train class
         for c in self.train_classes:
-            class_map[c] = c
+            mapping_dict[c] = c
 
         # now shift the existing classes so that they are consecutive
         for i, c in enumerate(self.train_classes):
-            for c1, c2 in class_map.items():
+            for c1, c2 in mapping_dict.items():
                 # the existing mapping list maps from one class to another class
                 # so we take that second class and check if we want to keep it, i.e. it's in train_classes
                 # and if so, we set it to 1+i because i is 0-based and 0 is set to the catch-all class, so we start indexing at 1
                 if c2 == c:
-                    class_map[c1] = i + 1
+                    mapping_dict[c1] = i + 1
 
-        for idx in self.donotcare_class_ids:
-            class_map[idx] = IGNORE_LABEL
+        for idx in dataset.ignore_classes:
+            mapping_dict[idx] = IGNORE_LABEL
 
-        for source, target in class_map.items():
+        for source, target in mapping_dict.items():
             mask = labels == source
             new_labels[mask] = target
 
@@ -220,63 +231,57 @@ class CopcDataset(BaseDataset):
     def __init__(self, dataset_opt):
         super().__init__(dataset_opt)
 
-        if not dataset_opt.is_inference:
-            train_samples = {}
-            val_samples = {}
-            test_samples = {}
-            class_maps = {}
-            dataset_sampling_rates = []
-            for dataset in dataset_opt.datasets:
-                dataset_sampling_rates.append(dataset.sampling_rate)
-                class_maps[dataset.dataset] = dict(dataset.classification_map.class_map_from_to)
-                with open(os.path.join(dataset_opt.dataroot, dataset.dataset, "copc/splits-v%d.json" % (dataset_opt.dataset_version))) as fp:
-                    splits = json.load(fp)
+        splits = {"train": {}, "test": {}, "val": {}}
+        if not dataset_opt.is_inference:            
+            for dset_name, dataset in dataset_opt.datasets.items():
+                with open(os.path.join(dataset_opt.dataroot, dset_name, "copc/splits-v%d.json" % (dataset_opt.dataset_version))) as fp:
+                    dset_splits = json.load(fp)
 
-                # Training samples
-                train_samples[dataset.dataset] = splits["train"]
-                val_samples[dataset.dataset] = splits["val"]
-                test_samples[dataset.dataset] = splits["test"]
-
+                for split in splits.keys():
+                    splits[split][dset_name] = []
+                    for file_name, file_items in dset_splits[split].items():
+                        for dxy, z_list in file_items.items():
+                            d, x, y  = ast.literal_eval(dxy)
+                            splits[split][dset_name].append(DatasetSample(file=file_name, depth=d, x=x, y=y, z=z_list))
+                
             self.train_dataset = CopcInternalDataset(
                 root=dataset_opt.dataroot,
-                samples=train_samples,
+                split="train",
+                samples=splits["train"],
                 transform=self.train_transform,
                 train_classes=dataset_opt.training_classes,
                 resolution=dataset_opt.resolution,
-                dataset_sampling_rates= dataset_sampling_rates,
-                class_maps = class_maps,
-                donotcare_class_ids=dataset_opt.donotcare_class_ids,
+                datasets=dataset_opt.datasets,
                 do_augment=dataset_opt.do_augment,
                 do_shift=dataset_opt.do_shift,
+                number_of_sample_per_epoch=dataset_opt.number_of_sample_per_epoch,
                 # augment_transform=instantiate_transforms(dataset_opt.augment),
                 train_classes_weights=dataset_opt.training_classes_weights,)
 
             self.val_dataset = CopcInternalDataset(
                 root=dataset_opt.dataroot,
-                samples=val_samples,
-                transform=self.val_transform,
+                split="val",
+                samples=splits["val"],
+                datasets=dataset_opt.datasets,
+                number_of_sample_per_epoch=-1,
                 train_classes=dataset_opt.training_classes,
+                transform=self.val_transform,
                 resolution=dataset_opt.resolution,
-                dataset_sampling_rates=dataset_sampling_rates,
-                class_maps=class_maps,
-                donotcare_class_ids=dataset_opt.donotcare_class_ids,
                 do_augment=False,
-                do_shift=dataset_opt.do_shift,
-                train_classes_weights=dataset_opt.training_classes_weights,
+                do_shift=dataset_opt.do_shift
             )
 
             self.test_dataset = CopcInternalDataset(
                 root=dataset_opt.dataroot,
-                samples=test_samples,
-                transform=self.test_transform,
+                split="test",
+                samples=splits["test"],
+                datasets=dataset_opt.datasets,
                 train_classes=dataset_opt.training_classes,
+                number_of_sample_per_epoch=-1,
+                transform=self.test_transform,
                 resolution=dataset_opt.resolution,
-                dataset_sampling_rates=dataset_sampling_rates,
-                class_maps=class_maps,
-                donotcare_class_ids=dataset_opt.donotcare_class_ids,
                 do_augment=False,
-                do_shift=dataset_opt.do_shift,
-                train_classes_weights=dataset_opt.training_classes_weights,
+                do_shift=dataset_opt.do_shift
             )
         else:
 
@@ -284,13 +289,12 @@ class CopcDataset(BaseDataset):
                 dataset_opt.dataroot,
                 samples= {}, #TODO
                 transform=self.test_transform,
-                train_classes=dataset_opt.train_classes,
                 resolution=dataset_opt.resolution,
                 is_inference=True,
-                donotcare_class_ids=dataset_opt.donotcare_class_ids,
                 do_augment=False,
+                hUnits=20,
+                vUnits=20,
                 do_shift=dataset_opt.do_shift,
-                train_classes_weights=dataset_opt.training_classes_weights,
             )
 
     def get_tracker(self, wandb_log: bool, tensorboard_log: bool):
