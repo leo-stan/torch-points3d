@@ -3,6 +3,7 @@ import torch
 import numpy as np
 from plyfile import PlyData, PlyElement
 import logging
+import laspy
 
 log = logging.getLogger(__name__)
 
@@ -161,11 +162,46 @@ class Visualizer(object):
                     out_item = self._dict_to_structured_npy(out_item)
 
                     dir_path = os.path.join(self._viz_path, str(self._current_epoch), self._stage)
-                    if not os.path.exists(dir_path):
-                        os.makedirs(dir_path)
+                    out_path = os.path.join(dir_path, "preds")
+                    if not os.path.exists(out_path):
+                        os.makedirs(out_path)
 
                     filename = "{}_{}.ply".format(self._seen_batch, pos_idx)
                     path_out = os.path.join(dir_path, filename)
-                    el = PlyElement.describe(out_item, visual_name)
-                    PlyData([el], byte_order=">").write(path_out)
+
+                    filename = "{}_{}.las".format(
+                        self._seen_batch, pos_idx
+                    )
+                    path_out = os.path.join(out_path, filename)
+                    pred_las = laspy.file.File(
+                        path_out, mode="w", header=laspy.header.Header()
+                    )
+                    pred_las.header.scale = [0.01, 0.01, 0.01]
+                    pred_las.header.offset = [0, 0, 0]
+                    pred_las.x = out_item["x"]
+                    pred_las.y = out_item["y"]
+                    pred_las.z = out_item["z"]
+                    pred_las.classification = out_item["p"].astype(np.ubyte)+1
+                    pred_las.close()
+                    print(len(out_item["x"]))
+
+                    out_path = os.path.join(dir_path, "gt")
+                    if not os.path.exists(out_path):
+                        os.makedirs(out_path)
+
+                    filename = "{}_{}_gt.las".format(
+                        self._seen_batch, pos_idx
+                    )
+                    path_out = os.path.join(out_path, filename)
+                    pred_las = laspy.file.File(
+                        path_out, mode="w", header=laspy.header.Header()
+                    )
+                    pred_las.header.scale = [0.01, 0.01, 0.01]
+                    pred_las.header.offset = [0, 0, 0]
+                    pred_las.x = out_item["x"]
+                    pred_las.y = out_item["y"]
+                    pred_las.z = out_item["z"]
+                    pred_las.classification = out_item["l"].astype(np.ubyte)+1
+                    pred_las.close()
+
             self._seen_batch += 1
