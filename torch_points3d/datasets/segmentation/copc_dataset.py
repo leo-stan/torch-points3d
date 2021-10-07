@@ -137,13 +137,12 @@ class CopcInternalDataset(torch.utils.data.Dataset):
 
             points = np.stack([copc_points.X, copc_points.Y, copc_points.Z], axis=1)
             classification = np.array(copc_points.Classification).astype(np.int)
+
             if (len(points) == 0):
-                print(nearest_depth,x,y,z)
-                print(valid_keys)
-                print(sample)
+                # if there's no points in this sample, just get another sample:
+                return self[0]
         
         #if len(self.class_maps[dataset]):
-        print(points.shape)
         x_min = np.min(points[:,0])
         y_min = np.min(points[:,1])
         x_max = np.max(points[:,0])
