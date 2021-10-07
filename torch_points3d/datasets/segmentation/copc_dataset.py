@@ -11,6 +11,7 @@ import os
 import json
 import glob
 from sys import float_info
+import re
 
 
 class CopcInternalDataset(torch.utils.data.Dataset):
@@ -52,60 +53,96 @@ class CopcInternalDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
 
+        # Draw a data sample, either randomly or with dataset sample rates
         if not self.is_inference & len(self.dataset_sampling_rates) > 0:
-            dataset = np.random.choice(self.samples.keys(),len(self.samples.keys()), p=self.dataset_sampling_rates)
+            dataset = np.random.choice(list(self.samples.keys()), p=self.dataset_sampling_rates)
         else:
             dataset = np.random.choice(self.samples.keys(), len(self.samples.keys()))
-        split = np.random.choice(self.samples[dataset].keys(), len(self.samples[dataset].keys()))
-        sample = np.random.choice(self.samples[dataset][split].items(), len(self.samples[dataset][split].items()))
 
-        reader = copc.Reader(os.path.join(self.root,dataset,split,"octree.copc.laz"))
+        split = np.random.choice(list(self.samples[dataset].keys()))
+        sample = np.random.choice(list(self.samples[dataset][split].keys()))
+
+
+        reader = copc.FileReader(os.path.join(self.root,dataset,"copc",split,"octree.copc.laz"))
         header = reader.GetLasHeader()
 
-        max_depth = reader.GetDepthOfResolution(self.resolution)
+        # Extract nearest depth, x, and y from sample
+        nearest_depth, x, y = re.findall(r'\b\d+\b', sample)
+        nearest_depth, x, y = int(nearest_depth), int(x), int(y)
+        max_depth = reader.GetDepthAtResolution(self.resolution)
         # Fill z as 0, since we don't care about that dimension
-        bounds = copc.Box(sample.append(0), header)
+        sample_bounds = copc.Box(copc.VoxelKey(nearest_depth,x,y,0), header)
         # Make the tile 2D
-        bounds.z_min = float_info.min
-        bounds.z_max = float_info.max
+        sample_bounds.z_min = float_info.min
+        sample_bounds.z_max = float_info.max
 
         # If we're doing inference we need to track where the points came from
         if self.is_inference:
-            all_points = []  # Nx3
-            all_points_key = []  # N
-            all_points_idx = []  # N
-            # for depth in range(max_depth):
-            nodes = reader.GetNodesIntersectBox(bounds, resolution=self.resolution)
-            if len(nodes) != max_depth+1:
-                raise Exception("More nodes than depth levels.")
-            for node in nodes:
-                points = reader.GetPoints(node)
-                node_points_within_bounds_idx = []
-                node_points_within_bounds = []
-                for id, point in enumerate(points):
-                    if point.Within(sample[1]):
-                        node_points_within_bounds_idx.append(id)
-                        node_points_within_bounds.append(point)
-
-                all_points.append(node_points_within_bounds)
-                all_points_key.append([node.key] * len(node_points_within_bounds))
-                all_points_idx.append(node_points_within_bounds_idx)
-            # Stack X,Y,Z
-            points = np.stack([[point.X for sublist in all_points for point in sublist], [point.Y for sublist in all_points for point in sublist], [point.Z for sublist in all_points for point in sublist]], axis=1)
-            points_key = np.asarray([node_idx for sublist in all_points_key for node_idx in sublist])
-            points_idx = np.asarray([point_idx for sublist in all_points_idx for point_idx in sublist])
-            classification = np.asarray([point.Classification for sublist in all_points for point in sublist])
+            pass
+            # TODO [Leo]: REDO this for new splits
+            # all_points = []  # Nx3
+            # all_points_key = []  # N
+            # all_points_idx = []  # N
+            # # for depth in range(max_depth):
+            # nodes = reader.GetNodesIntersectBox(sample_bounds, resolution=self.resolution)
+            # if len(nodes) != max_depth+1:
+            #     raise Exception("More nodes than depth levels.")
+            # for node in nodes:
+            #     points = reader.GetPoints(node)
+            #     node_points_within_bounds_idx = []
+            #     node_points_within_bounds = []
+            #     for id, point in enumerate(points):
+            #         if point.Within(sample[1]):
+            #             node_points_within_bounds_idx.append(id)
+            #             node_points_within_bounds.append(point)
+            #
+            #     all_points.append(node_points_within_bounds)
+            #     all_points_key.append([node.key] * len(node_points_within_bounds))
+            #     all_points_idx.append(node_points_within_bounds_idx)
+            # # Stack X,Y,Z
+            # points = np.stack([[point.X for sublist in all_points for point in sublist], [point.Y for sublist in all_points for point in sublist], [point.Z for sublist in all_points for point in sublist]], axis=1)
+            # points_key = np.asarray([node_idx for sublist in all_points_key for node_idx in sublist])
+            # points_idx = np.asarray([point_idx for sublist in all_points_idx for point_idx in sublist])
+            # classification = np.asarray([point.Classification for sublist in all_points for point in sublist])
 
         # If training we can just grab points without tracking
         else:
-            copc_points = reader.GetPointsWithinBox(bounds)
+            # Test possible Zs to see if key exist self.samples[dataset][split][sample]
+            valid_nodes = []
+            for z in self.samples[dataset][split][sample]:
+                key = copc.VoxelKey(nearest_depth,x,y,z)
+                node = reader.FindNode(key)
+
+                while not node.IsValid() and key.IsValid():
+                    key = key.GetParent()
+                    node = reader.FindNode(key)
+                if node.IsValid():
+                    valid_nodes.append(node)
+
+            # Check whether points exist within the x/y region
+            # points_xy = reader.GetPointsWithinBox(sample_bounds)
+
+            # Process keys that exist
+            copc_points = copc.Points(header)
+            loaded_keys = [] # Makes sure we don't load the same key twice
+            for node in valid_nodes:
+                if node.key.d == nearest_depth:
+                    # Get all children points (these will automatically fit
+                    copc_points.AddPoints(reader.GetAllChildrenPoints(node.key, self.resolution))
+                key = node.key
+                while key.IsValid() and key not in loaded_keys:
+                    copc_points.AddPoints(reader.GetPoints(key).GetWithin(sample_bounds))
+                    loaded_keys.append(key)
+                    key = key.GetParent()
+
             points = np.stack([copc_points.X, copc_points.Y, copc_points.Z], axis=1)
-            points_key = np.array(())
-            points_idx = np.array(())
+            points_key = []
+            points_idx = []
             classification = np.array(copc_points.Classification).astype(np.int)
 
         y = torch.from_numpy(classification)
-        y = self._remap_labels(y, self.class_maps[dataset])
+        if len(self.class_maps[dataset]):
+            y = self._remap_labels(y, self.class_maps[dataset])
 
         x_min = np.min(points[:,0])
         y_min = np.min(points[:,1])
@@ -121,7 +158,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         z_mean = np.mean(points[:, 2])
         points[:,2] -= int(z_mean)
 
-        data = Data(pos=torch.from_numpy(points).type(torch.float), y=y, file=[idx], keys=points_key, point_idx=points_idx)
+        data = Data(pos=torch.from_numpy(points).type(torch.float), y=y)
 
         if self.is_inference:
             data = SaveOriginalPosId()(data)
@@ -191,7 +228,7 @@ class CopcDataset(BaseDataset):
             dataset_sampling_rates = []
             for dataset in dataset_opt.datasets:
                 dataset_sampling_rates.append(dataset.sampling_rate)
-                class_maps[dataset] = dict(dataset.classification_map.class_map_from_to)
+                class_maps[dataset.dataset] = dict(dataset.classification_map.class_map_from_to)
                 with open(os.path.join(dataset_opt.dataroot, dataset.dataset, "copc/splits-v%d.json" % (dataset_opt.dataset_version))) as fp:
                     splits = json.load(fp)
 
@@ -199,7 +236,6 @@ class CopcDataset(BaseDataset):
                 train_samples[dataset.dataset] = splits["train"]
                 val_samples[dataset.dataset] = splits["val"]
                 test_samples[dataset.dataset] = splits["test"]
-
 
             self.train_dataset = CopcInternalDataset(
                 root=dataset_opt.dataroot,
