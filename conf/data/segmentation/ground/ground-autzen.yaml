@@ -14,9 +14,9 @@ data:
     #        class_map_from_to: [[from,to],[from,to],[from,to],...] # Map classes [from,to]
     autzen:
       sampling_rate: 1
-      ignore_classes: []
+      ignore_classes: [0] # class 0 has a lot of ground points mixed in
       filter_classes: []
-      class_map_from_to: []
+      class_map_from_to: [[9,2]]
   training_classes: [2]
   training_classes_weights: [1, 1] #[otherClass, train_class[0], train_class[1], ...]
 

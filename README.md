@@ -11,5 +11,5 @@ python train.py task=segmentation models=segmentation/sparseconv3d model_name=Re
 To launch training:
 
 ```
-python train.py task=segmentation models=segmentation/sparseconv3d model_name=ResUNet32 training=sparseconv3d_ground data=segmentation/ground/ground training.wandb.log=False
+python train.py task=segmentation models=segmentation/sparseconv3d model_name=ResUNet32 training=sparseconv3d_ground data=segmentation/ground/ground
 ```

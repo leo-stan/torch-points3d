@@ -15,10 +15,9 @@ def m_to_ft(m):
 resolution = 0.5
 target_tile_size = 100
 max_resolution = 5
-test_res = 20
-datasets = ["autzen"]#["lux", "sasche", "tyrol"]
+datasets = ["lux", "sasche", "tyrol"]
 path = "/media/nvme/pcdata"
-splits = {'train': 0.8, 'val': 0.1, 'test': 0.1}
+splits = {'train': 0.9, 'val': 0.05, 'test': 0.05}
 version = "v1"
 
 def get_split():
@@ -99,9 +98,10 @@ def split_dataset(dataset):
             dataset_splits[split][f] = d[split]
 
     with open(osp.join(dataset_dir, "splits-%s.json" % version), 'w', encoding='utf-8') as f:
-        json.dump(dataset_splits, f, ensure_ascii=False, indent=4)
+        json.dump(dataset_splits, f)
 
-split_dataset(datasets[0])
+for dataset in datasets:
+    split_dataset(dataset)
 #Parallel(n_jobs=-1)(delayed(split_dataset)(dataset) for dataset in datasets)
 
 with open(osp.join(path, "dataset-%s.json" % version), 'w', encoding='utf-8') as f:

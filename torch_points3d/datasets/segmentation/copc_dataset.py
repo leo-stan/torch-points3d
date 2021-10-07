@@ -124,15 +124,16 @@ class CopcInternalDataset(torch.utils.data.Dataset):
 
             # Process keys that exist
             copc_points = copc.Points(header)
-            # valid_keys = {copc.VoxelKey(4,11,5,0)}
+            loaded_keys = set()
 
             for key in valid_keys:
                 if key.d == nearest_depth:
                     # Get all children points (these will automatically fit
                     copc_points.AddPoints(reader.GetAllChildrenPoints(key, self.resolution))
                     
-                while key.IsValid():
+                while key.IsValid() and key not in loaded_keys:
                     copc_points.AddPoints(reader.GetPoints(key).GetWithin(sample_bounds))
+                    loaded_keys.add(key)
                     key = key.GetParent()
 
             points = np.stack([copc_points.X, copc_points.Y, copc_points.Z], axis=1)
