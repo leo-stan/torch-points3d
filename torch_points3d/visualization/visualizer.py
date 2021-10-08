@@ -183,7 +183,6 @@ class Visualizer(object):
                     pred_las.z = out_item["z"]
                     pred_las.classification = out_item["p"].astype(np.ubyte)+1
                     pred_las.close()
-                    print(len(out_item["x"]))
 
                     out_path = os.path.join(dir_path, "gt")
                     if not os.path.exists(out_path):
