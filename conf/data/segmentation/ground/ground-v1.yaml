@@ -1,0 +1,66 @@
+data:
+  task: segmentation
+  class: copc_dataset.CopcDataset
+  dataroot: /media/nvme/pcdata
+  is_inference: False
+  resolution: 0.5
+  dataset_version: 1
+  number_of_sample_per_epoch: -1  # Number of random sample per epoch, -1 for all samples
+  datasets:
+    #    - name: name
+    #        sampling_rate: # How often this dataset get selected to draw samples (0=never, 1=same probability as other datasets)
+    #        ignore_classes: [ ] # Classes for which we don't update the loss for but do not remove the points
+    #        filter_classes: [ ] # Classes for which we remove the points before passing to model
+    #        class_map_from_to: [[from,to],[from,to],[from,to],...] # Map classes [from,to]
+    lux:
+      sampling_rate: 1
+      ignore_classes: [0] 
+      filter_classes: []
+      class_map_from_to: [[9,2]]
+    # sasche:
+    #   sampling_rate: 1
+    #   ignore_classes: [] 
+    #   filter_classes: [22,23,24]
+    #   class_map_from_to: [[9,2]]
+    # tyrol:
+    #   sampling_rate: 1
+    #   ignore_classes: [1]
+    #   filter_classes: []
+    #   class_map_from_to: [[9,2]]
+
+  training_classes: [2]
+  training_classes_weights: [1, 1] #[otherClass, train_class[0], train_class[1], ...]
+
+  train_transforms:
+    - transform: XYZFeature
+      params:
+        add_x: False
+        add_y: False
+        add_z: True
+    - transform: AddFeatsByKeys
+      params:
+        list_add_to_x: [True]
+        feat_names: [pos_z]
+        delete_feats: [True]
+    - transform: GridSampling3D
+      params:
+        size: ${data.resolution}
+        quantize_coords: True
+        mode: "last"
+  test_transform:
+    - transform: XYZFeature
+      params:
+        add_x: False
+        add_y: False
+        add_z: True
+    - transform: AddFeatsByKeys
+      params:
+        list_add_to_x: [True]
+        feat_names: [pos_z]
+        delete_feats: [True]
+    - transform: GridSampling3D
+      params:
+        size: ${data.resolution}
+        quantize_coords: True
+        mode: "last"
+  val_transform: ${data.test_transform}

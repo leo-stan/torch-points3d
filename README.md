@@ -8,8 +8,21 @@ To test if everything is working:
 python train.py task=segmentation models=segmentation/sparseconv3d model_name=ResUNet32 training=minkowski_scannet data=segmentation/s3dis1x1-sparse training.wandb.log=False
 ```
 
+To launch test training:
+
+```
+python train.py task=segmentation models=segmentation/sparseconv3d model_name=ResUNet32 training=sparseconv3d_ground data=segmentation/ground/ground-autzen training.wandb.log=False
+```
+
 To launch training:
 
 ```
-python train.py task=segmentation models=segmentation/sparseconv3d model_name=ResUNet32 training=sparseconv3d_ground data=segmentation/ground/ground
+python train.py task=segmentation models=segmentation/sparseconv3d model_name=ResUNet32 training=sparseconv3d_ground data=segmentation/ground/ground-v1
+```
+
+profile:
+
+```
+python -m cProfile -o out.prof train.py task=segmentation models=segmentation/sparseconv3d model_name=ResUNet32 training=sparseconv3d_ground data=segmentation/ground/ground-v1 training.wandb.log=False training.num_workers=0
+snakeviz out.prof
 ```

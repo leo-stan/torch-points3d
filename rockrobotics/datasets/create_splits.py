@@ -39,8 +39,7 @@ def split_dataset(dataset):
         if not osp.exists(datafile_path):
             return None
 
-        #try:     
-        if True:
+        try:
             reader = copc.FileReader(datafile_path)
             header = reader.GetLasHeader()
             depth = reader.GetDepthAtResolution(resolution)
@@ -89,6 +88,8 @@ def split_dataset(dataset):
             
             reader.Close()
             return (datafile, datafile_splits)
+        except:
+            print("Error on file: " + datafile_path)
     
     x = Parallel(n_jobs=-1)(delayed(split_file)(datafile) for datafile in tqdm(os.listdir(dataset_dir)))
     dataset_splits = {"train": {}, "test": {}, "val": {}}
