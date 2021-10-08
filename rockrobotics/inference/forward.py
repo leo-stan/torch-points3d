@@ -30,10 +30,11 @@ from torch_points3d.utils.colors import COLORS
 
 log = logging.getLogger(__name__)
 import laspy
+import copclib as copc
 
 
 def save_file(filename, output_path, predicted, origindid, debug, confidence_threshold):
-    las = laspy.read(filename)
+    reader = copc.FileReader(filename)
     file_dir = os.path.basename(os.path.dirname(filename))
     out_dir = os.path.join(output_path, file_dir)
     try:
@@ -41,21 +42,33 @@ def save_file(filename, output_path, predicted, origindid, debug, confidence_thr
             os.makedirs(out_dir)
     except FileExistsError:
         pass
-    las_out = laspy.LasData(las.header)
-    las_out.points = las.points
 
-    classifications = np.zeros(len(las.points), dtype=np.uint8)
-    probs = torch.nn.functional.softmax(torch.from_numpy(np.copy(predicted)), dim=1)
-    probs_max, preds = torch.max(probs, dim=1)
+    cfg = copc.LasConfig(reader.GetLasHeader(), reader.GetExtraByteVlr(), )
+    # Create the COPC writer
+    writer = copc.FileWriter(os.path.join(out_dir, os.path.basename(filename)),cfg,reader.GetCopcHeader().span,
+        reader.GetWkt())
 
-    preds[probs_max <= confidence_threshold] = -1
+    # TODO
+    # For each copc split file
+    # Load all modified nodes for file
+    # For each Reader node
+        # Check if node was modified
+        #if modified
+            # Update the point's classification
+                #Get the predicted classification
+                #Reverse map the classification to the dataset
+        # Write the node
 
-    classifications[origindid] = preds + 1
-    classifications[las_out.classification == 7] = 7
-    las_out.classification = classifications
-
-    las = None
-    las_out.write(os.path.join(out_dir, os.path.basename(filename)))
+    # classifications = np.zeros(len(las.points), dtype=np.uint8)
+    # probs = torch.nn.functional.softmax(torch.from_numpy(np.copy(predicted)), dim=1)
+    # probs_max, preds = torch.max(probs, dim=1)
+    #
+    # preds[probs_max <= confidence_threshold] = -1
+    #
+    # classifications[origindid] = preds + 1
+    # classifications[las_out.classification == 7] = 7
+    # las_out.classification = classifications
+    writer.Close()
 
 
 def save_file_debug(filename, output_path, predicted, origindid, debug, confidence_threshold):
@@ -109,6 +122,7 @@ def run(model: BaseModel, dataset, device, output_path, debug, confidence_thresh
                         setattr(data, "_pred", output)
                         for sample in range(num_batches):
                             predicted = BaseDataset.get_sample(data, "_pred", sample, model.conv_type).cpu().numpy()
+                            # TODO
                             origindid = BaseDataset.get_sample(data, SaveOriginalPosId.KEY, sample,
                                                                model.conv_type).cpu().numpy()
                             filename = dataset.test_dataset[0].files[data.file[sample][0]]
