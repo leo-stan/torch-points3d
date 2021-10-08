@@ -88,7 +88,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         return self.nb_samples
 
     # given a key, recursively check if each of its 8 children exist in the hierarchy
-    def get_all_key_children(self, key, max_depth, hierarchy, children=[]):
+    def get_all_key_children(self, key, max_depth, hierarchy, children):
         # stop once we reach max_depth, since none of its children can exist
         if key.d >= max_depth:
             return
@@ -109,7 +109,8 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         file = dataset["files"][sample.file]
         hierarchy = file.hierarchy
 
-        reader = copc.FileReader(os.path.join(self.root,sample.dataset,"copc",sample.file,"octree.copc.laz"))
+        file_path = os.path.join(self.root,sample.dataset,"copc",sample.file,"octree.copc.laz")
+        reader = copc.FileReader(file_path)
         header = reader.GetLasHeader()
         max_depth = file.max_depth
 
@@ -124,6 +125,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
 
         # If training we can just grab points without tracking
         valid_nodes = {}
+        valid_parent_nodes = {}
         # check each possible z to see if it, or any of its parents, exist
         for i, z in enumerate(sample.z):
             start_key = copc.VoxelKey(nearest_depth, x, y, z)
@@ -145,53 +147,38 @@ class CopcInternalDataset(torch.utils.data.Dataset):
             # then, get all nodes from depth 0 to the current depth
             key = start_key
             while key.IsValid():
-                valid_nodes[str(key)] = hierarchy[str(key)]
+                valid_parent_nodes[str(key)] = hierarchy[str(key)]
                 key = key.GetParent()
 
-            # Process keys that exist
-            copc_points = copc.Points(header)
-            points_key = []
-            points_idx = []
-            points_file = []
+        # Process keys that exist
+        copc_points = copc.Points(header)
+        points_key = []
+        points_idx = []
+        points_file = []
 
-            for node in valid_nodes.values():
-                key = node.key
+        # For node and children we can load all points
+        for node in valid_nodes.values():
+            node_points = reader.GetPoints(node)
+            if self.is_inference:
+                for i in range(len(node_points)):
+                    points_key.append((node.key.d,node.key.x,node.key.y,node.key.z))
+                    points_file.append(file_path)
+                    points_idx.append(i)
+            else:
+                copc_points.AddPoints(node_points)
+
+        # For parents node we need to check which points fit within bounds
+        for node in valid_parent_nodes.values():
+            if self.is_inference:
+                node_points = reader.GetPoints(node)
+                for i, point in enumerate(node_points):
+                    if point.Within(sample_bounds):
+                        copc_points.AddPoint(point)
+                        points_key.append((node.key.d,node.key.x,node.key.y,node.key.z))
+                        points_file.append(file_path)
+                        points_idx.append(i)
+            else:
                 copc_points.AddPoints(reader.GetPoints(node).GetWithin(sample_bounds))
-
-        #   #  print("read nodes: %f" % (time.time() - t))
-        #   #  t = time.time()
-        # for node in valid_nodes:
-        #     key = node.key
-        #     if key.d == nearest_depth:
-        #         # Get all children points (these will automatically fit within sample_bounds)
-        #         child_keys = []
-        #         self.get_all_key_children(key, max_depth, hierarchy, child_keys)
-        #         # for node in reader.GetAllChildren(key):
-        #         #     if node.key.depth <= max_depth:
-        #         #         node_points = reader.GetPoints(node)
-        #         #         copc_points.AddPoints(node_points)
-        #         #         if self.is_inference:
-        #         #             for i in range(len(node_points)):
-        #         #                 points_key.append((node.key.d,node.key.x,node.key.y,node.key.z))
-        #         #                 points_file.append(os.path.join(self.root,dset_name,"copc",sample.file,"octree.copc.laz"))
-        #         #                 points_idx.append(i)
-        #
-        #     while key.IsValid() and key not in loaded_keys:
-        #         if key not in hierarchy:
-        #             raise RuntimeError("This shouldn't happen!")
-        #         current_node = hierarchy[key]
-        #         if self.is_inference:
-        #             node_points = reader.GetPoints(key)
-        #             for i,point in enumerate(node_points):
-        #                 if point.Within(sample_bounds):
-        #                     copc_points.AddPoint(point)
-        #                     points_key.append((key.d,key.x,key.y,key.z))
-        #                     points_file.append(os.path.join(self.root,dset_name,"copc",sample.file,"octree.copc.laz"))
-        #                     points_idx.append(i)
-        #         else:
-        #             copc_points.AddPoints(reader.GetPoints(current_node).GetWithin(sample_bounds))
-        #         loaded_keys.add(key)
-        #         key = key.GetParent()
 
         points = np.stack([copc_points.X, copc_points.Y, copc_points.Z], axis=1) # Nx3
         points_key = np.asarray(points_key)  # N
@@ -311,7 +298,7 @@ class CopcDataset(BaseDataset):
                     dataset["file_list"].add(file_name)
                     for dxy, z_list in file_items.items():
                         d, x, y = ast.literal_eval(dxy)
-                        splits[split][dset_name].append(DatasetSample(file=file_name, depth=d, x=x, y=y, z=z_list))
+                        splits[split][dset_name].append(DatasetSample(file=file_name, dataset=dset_name, depth=d, x=x, y=y, z=z_list))
                 if split == "train" and dataset["num_training_samples"] < 0:
                     dataset["num_training_samples"] = len(splits[split][dset_name])
 

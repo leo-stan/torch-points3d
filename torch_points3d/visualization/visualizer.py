@@ -3,7 +3,7 @@ import torch
 import numpy as np
 from plyfile import PlyData, PlyElement
 import logging
-# import laspy
+import laspy
 
 log = logging.getLogger(__name__)
 

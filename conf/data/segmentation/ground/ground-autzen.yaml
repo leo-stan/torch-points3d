@@ -12,7 +12,7 @@ data:
     #        filter_classes: [ ] # Classes for which we remove the points before passing to model
     #        class_map_from_to: [[from,to],[from,to],[from,to],...] # Map classes [from,to]
     autzen:
-      number_of_sample_per_epoch: -1  # Number of random sample per epoch, -1 for all samples
+      num_training_samples: -1  # Number of random sample per epoch, -1 for all samples
       ignore_classes: [0] # class 0 has a lot of ground points mixed in
       filter_classes: []
       class_map_from_to: [[9,2]]
