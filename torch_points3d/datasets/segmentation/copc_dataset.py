@@ -123,19 +123,20 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         for i, z in enumerate(sample.z):
             key = copc.VoxelKey(nearest_depth,x,y,z)
 
-
             while key not in hierarchy:
-                    if key.d < 0:
-                        raise RuntimeError("This shouldn't happen!")
+                if key.d < 0:
+                    raise RuntimeError("This shouldn't happen!")
                 key = key.GetParent()
-                if key.d == nearest_depth:
-                    child_nodes = []
-                    self.get_all_key_children(key, max_depth, hierarchy, child_nodes)
-                    for child_node in child_nodes:
-                        valid_nodes.add(child_node)
+
+            if key.d == nearest_depth:
+                child_nodes = []
+                self.get_all_key_children(key, max_depth, hierarchy, child_nodes)
+                for child_node in child_nodes:
+                    valid_nodes.add(child_node)
+
             if key not in hierarchy:
                 raise RuntimeError("This shouldn't happen!")
-                valid_nodes.add(hierarchy[key])
+            valid_nodes.add(hierarchy[key])
 
         # Process keys that exist
         copc_points = copc.Points(header)
@@ -146,38 +147,28 @@ class CopcInternalDataset(torch.utils.data.Dataset):
             #print("find nodes: %f" % (time.time() - t))
            # t = time.time()
 
-            for node in valid_nodes:
-                key = node.key
-                if key.d == nearest_depth:
-                    child_keys = []
-                    self.get_all_key_children(key, max_depth, hierarchy, child_keys)
-                    pass
-                    #copc_points.AddPoints(reader.GetAllChildrenPoints(key, self.resolution))
-
-                while key not in loaded_keys and key.d >= 0:
-                    if key not in hierarchy:
-                        raise RuntimeError("This shouldn't happen!")
-
-                    current_node = hierarchy[key]
-                    copc_points.AddPoints(reader.GetPoints(current_node).GetWithin(sample_bounds))
-                    loaded_keys.add(key)
-                    key = key.GetParent()
           #  print("read nodes: %f" % (time.time() - t))
           #  t = time.time()
-        for key in valid_keys:
+        for node in valid_nodes:
+            key = node.key
             if key.d == nearest_depth:
                 # Get all children points (these will automatically fit within sample_bounds)
-                for node in reader.GetAllChildren(key):
-                    if node.key.depth <= max_depth:
-                        node_points = reader.GetPoints(node)
-                        copc_points.AddPoints(node_points)
-                        if self.is_inference:
-                            for i in range(len(node_points)):
-                                points_key.append((node.key.d,node.key.x,node.key.y,node.key.z))
-                                points_file.append(os.path.join(self.root,dset_name,"copc",sample.file,"octree.copc.laz"))
-                                points_idx.append(i)
+                child_keys = []
+                self.get_all_key_children(key, max_depth, hierarchy, child_keys)
+                # for node in reader.GetAllChildren(key):
+                #     if node.key.depth <= max_depth:
+                #         node_points = reader.GetPoints(node)
+                #         copc_points.AddPoints(node_points)
+                #         if self.is_inference:
+                #             for i in range(len(node_points)):
+                #                 points_key.append((node.key.d,node.key.x,node.key.y,node.key.z))
+                #                 points_file.append(os.path.join(self.root,dset_name,"copc",sample.file,"octree.copc.laz"))
+                #                 points_idx.append(i)
 
             while key.IsValid() and key not in loaded_keys:
+                if key not in hierarchy:
+                    raise RuntimeError("This shouldn't happen!")
+                current_node = hierarchy[key]
                 if self.is_inference:
                     node_points = reader.GetPoints(key)
                     for i,point in enumerate(node_points):
@@ -187,7 +178,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
                             points_file.append(os.path.join(self.root,dset_name,"copc",sample.file,"octree.copc.laz"))
                             points_idx.append(i)
                 else:
-                    copc_points.AddPoints(reader.GetPoints(key).GetWithin(sample_bounds))
+                    copc_points.AddPoints(reader.GetPoints(current_node).GetWithin(sample_bounds))
                 loaded_keys.add(key)
                 key = key.GetParent()
 
@@ -297,16 +288,17 @@ class CopcDataset(BaseDataset):
 
         splits = {"train": {}, "test": {}, "val": {}}
         datasets = OmegaConf.to_container(dataset_opt.datasets, True)
-        if not dataset_opt.is_inference:
-            for dset_name, dataset in datasets.items():
-                with open(os.path.join(dataset_opt.dataroot, dset_name, "copc/splits-v%d.json" % (dataset_opt.dataset_version))) as fp:
-                    dset_splits = json.load(fp)
+        for dset_name, dataset in datasets.items():
+            with open(os.path.join(dataset_opt.dataroot, dset_name, "copc/splits-v%d.json" % (dataset_opt.dataset_version))) as fp:
+                dset_splits = json.load(fp)
 
-            dataset["file_list"] = set()for split in splits.keys():
+            dataset["file_list"] = set()
+            for split in splits.keys():
                 splits[split][dset_name] = []
-                for file_name, file_items in dset_splits[split].items():dataset["file_list"].add(file_name)
+                for file_name, file_items in dset_splits[split].items():
+                    dataset["file_list"].add(file_name)
                     for dxy, z_list in file_items.items():
-                        d, x, y  = ast.literal_eval(dxy)
+                        d, x, y = ast.literal_eval(dxy)
                         splits[split][dset_name].append(DatasetSample(file=file_name, depth=d, x=x, y=y, z=z_list))
 
         if not dataset_opt.is_inference:
