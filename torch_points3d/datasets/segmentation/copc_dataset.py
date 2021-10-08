@@ -108,7 +108,6 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         dataset = self.datasets[sample.dataset]
         file = dataset["files"][sample.file]
         hierarchy = file.hierarchy
-        print(sample.dataset)
 
         reader = copc.FileReader(os.path.join(self.root,sample.dataset,"copc",sample.file,"octree.copc.laz"))
         header = reader.GetLasHeader()
