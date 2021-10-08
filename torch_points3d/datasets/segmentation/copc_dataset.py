@@ -237,6 +237,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
             if self.random_sample:
                 return self[0]
             else:
+                raise NotImplementedError()
                 # what to do?
                 pass
 
