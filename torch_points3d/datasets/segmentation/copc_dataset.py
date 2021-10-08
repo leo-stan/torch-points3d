@@ -121,7 +121,6 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         # Make the tile 2D
         sample_bounds.z_min = float_info.min
         sample_bounds.z_max = float_info.max
-        max_depth = reader.GetDepthAtResolution(self.resolution)
 
         # If training we can just grab points without tracking
         valid_nodes = {}
@@ -187,6 +186,8 @@ class CopcInternalDataset(torch.utils.data.Dataset):
 
         classification = np.array(copc_points.Classification).astype(np.int)
 
+        if len(points) == 0:
+            return self[0]
 
         x_min = np.min(points[:,0])
         y_min = np.min(points[:,1])
