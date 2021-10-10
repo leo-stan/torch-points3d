@@ -36,7 +36,7 @@ class File:
     max_depth: int
 
 class CopcInternalDataset(torch.utils.data.Dataset):
-    def __init__(self, root, split, samples, transform, train_classes, resolution, datasets, hUnits=1.0, vUnits=1.0, is_inference=False, do_augment=False, do_shift=False, augment_transform=None, train_classes_weights=None):
+    def __init__(self, root, split, samples, transform, train_classes, resolution, datasets, hUnits=1.0, vUnits=1.0, is_inference=False, do_augment=False, do_shift=False, augment_transform=None, train_classes_weights=None, min_num_points=1):
 
         self.root = root
         self.samples = samples
@@ -71,6 +71,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
             assert(len(self.samples) == len(self.sample_probability))
 
         self.is_inference = is_inference
+        self.min_num_points = max(1, min_num_points)
         self.resolution = resolution
         self.transform = transform
         self.train_classes = train_classes
@@ -88,7 +89,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         return self.nb_samples
 
     # given a key, recursively check if each of its 8 children exist in the hierarchy
-    def get_all_key_children(self, key, max_depth, hierarchy, children=[]):
+    def get_all_key_children(self, key, max_depth, hierarchy, children):
         # stop once we reach max_depth, since none of its children can exist
         if key.d >= max_depth:
             return
@@ -188,11 +189,8 @@ class CopcInternalDataset(torch.utils.data.Dataset):
             classification = np.array(copc_points.Classification).astype(np.int)
 
             # if there's no points in this sample, just get another sample:
-            if len(points) == 0:
+            if len(points) < self.min_num_points:
                 return self[0]
-        
-        # if len(points) < 200:
-        #     print(sample)
 
         x_min = np.min(points[:,0])
         y_min = np.min(points[:,1])
@@ -220,6 +218,15 @@ class CopcInternalDataset(torch.utils.data.Dataset):
 
         data = Data(pos=torch.from_numpy(points).type(torch.float), y=y)
 
+        if len(data.pos) < self.min_num_points:
+            if self.random_sample:
+                # if there's no points in this sample, just get another sample:
+                return self[0]
+            else:
+                raise NotImplementedError()
+                # what to do?
+                pass
+
         if self.is_inference:
             data = SaveOriginalPosId()(data)
 
@@ -231,14 +238,6 @@ class CopcInternalDataset(torch.utils.data.Dataset):
 
         if self.do_shift:
             data = ShiftVoxels()(data)
-
-        if len(data.pos) == 0:
-            if self.random_sample:
-                return self[0]
-            else:
-                raise NotImplementedError()
-                # what to do?
-                pass
 
         return data
 
@@ -328,6 +327,7 @@ class CopcDataset(BaseDataset):
                 transform=self.train_transform,
                 train_classes=dataset_opt.training_classes,
                 resolution=dataset_opt.resolution,
+                min_num_points=dataset_opt.min_num_points,
                 datasets=datasets,
                 do_augment=dataset_opt.do_augment,
                 do_shift=dataset_opt.do_shift,
@@ -342,6 +342,7 @@ class CopcDataset(BaseDataset):
                 train_classes=dataset_opt.training_classes,
                 transform=self.val_transform,
                 resolution=dataset_opt.resolution,
+                min_num_points=dataset_opt.min_num_points,
                 do_augment=False,
                 do_shift=dataset_opt.do_shift
             )
@@ -354,6 +355,7 @@ class CopcDataset(BaseDataset):
                 train_classes=dataset_opt.training_classes,
                 transform=self.test_transform,
                 resolution=dataset_opt.resolution,
+                min_num_points=dataset_opt.min_num_points,
                 do_augment=False,
                 do_shift=dataset_opt.do_shift
             )
@@ -364,6 +366,7 @@ class CopcDataset(BaseDataset):
                 samples= {}, #TODO
                 transform=self.test_transform,
                 resolution=dataset_opt.resolution,
+                min_num_points=dataset_opt.min_num_points,
                 is_inference=True,
                 do_augment=False,
                 hUnits=20,

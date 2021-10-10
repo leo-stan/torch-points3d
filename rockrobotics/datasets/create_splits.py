@@ -12,7 +12,7 @@ import math
 def m_to_ft(m):
     return m * 3.281
 
-resolution = 0.5
+resolution = 0.4 # get a slightly higher res than the one we want, since we have to downsample for tp3d
 target_tile_size = 100
 max_resolution = 5
 datasets = ["lux", "sasche", "tyrol"]
