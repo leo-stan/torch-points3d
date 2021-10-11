@@ -26,31 +26,30 @@ data:
   train_transforms:
     - transform: XYZFeature
       params:
-        add_x: True
-        add_y: True
+        add_x: False
+        add_y: False
         add_z: True
     - transform: AddFeatsByKeys
       params:
-        list_add_to_x: [True, True, True]
-        feat_names: [pos_z, pos_x, pos_y]
-        delete_feats: [True, True, True]
+        list_add_to_x: [True]
+        feat_names: [pos_z]
+        delete_feats: [True]
     - transform: GridSampling3D
       params:
         size: ${data.resolution}
         quantize_coords: True
         mode: "last"
   test_transform:
-    - transform: SaveOriginalPosId
     - transform: XYZFeature
       params:
-        add_x: True
-        add_y: True
+        add_x: False
+        add_y: False
         add_z: True
     - transform: AddFeatsByKeys
       params:
-        list_add_to_x: [True, True, True]
-        feat_names: [pos_z, pos_x, pos_y]
-        delete_feats: [True, True, True]
+        list_add_to_x: [True]
+        feat_names: [pos_z]
+        delete_feats: [True]
     - transform: GridSampling3D
       params:
         size: ${data.resolution}

@@ -34,6 +34,7 @@ class DatasetSample:
 @dataclass
 class File:
     name: str
+    path: str
     hierarchy: dict
     max_depth: int
 
@@ -50,7 +51,6 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         datasets,
         hUnits=1.0,
         vUnits=1.0,
-        is_inference=False,
         do_augment=False,
         do_shift=False,
         augment_transform=None,
@@ -60,8 +60,9 @@ class CopcInternalDataset(torch.utils.data.Dataset):
 
         self.root = root
         self.samples = samples
+        self.is_inference = split == "inference"
 
-        self.random_sample = not is_inference and split == "train"
+        self.random_sample = not self.is_inference and split == "train"
 
         # Compute total number of samples
         self.sample_probability = None
@@ -86,7 +87,6 @@ class CopcInternalDataset(torch.utils.data.Dataset):
             self.sample_probability = self.sample_probability / np.sum(self.sample_probability)
             assert len(self.samples) == len(self.sample_probability)
 
-        self.is_inference = is_inference
         self.min_num_points = max(1, min_num_points)
         self.resolution = resolution
         self.transform = transform
@@ -128,8 +128,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         hierarchy = file.hierarchy
 
         # create reader
-        file_path = os.path.join(self.root, sample.dataset, "copc", sample.file, "octree.copc.laz")
-        reader = copc.FileReader(file_path)
+        reader = copc.FileReader(file.path)
         header = reader.GetLasHeader()
         max_depth = file.max_depth
 
@@ -185,7 +184,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
             # track point for inference
             if self.is_inference:
                 for i in range(len(node_points)):
-                    points_key.append(str(node.key.d, node.key.x, node.key.y, node.key.z))
+                    points_key.append([node.key.d, node.key.x, node.key.y, node.key.z])
                     points_idx.append(i)
 
             copc_points.AddPoints(node_points)
@@ -198,7 +197,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
                     copc_points.AddPoint(point)
 
                     if self.is_inference:
-                        points_key.append(str(node.key.d, node.key.x, node.key.y, node.key.z))
+                        points_key.append([node.key.d, node.key.x, node.key.y, node.key.z])
                         points_idx.append(i)
 
         points = np.stack([copc_points.X, copc_points.Y, copc_points.Z], axis=1)
@@ -244,8 +243,8 @@ class CopcInternalDataset(torch.utils.data.Dataset):
                 # there's not really a great way to handle this
                 return self[random.randint(0, self.nb_samples - 1)]
 
-        if self.is_inference:
-            data = SaveOriginalPosId()(data)
+        # if self.is_inference:
+        #     data = SaveOriginalPosId()(data)
 
         if self.do_augment:
             data = self.augment_transform(data)
@@ -305,7 +304,7 @@ def get_hierarchy(file, file_path, resolution):
     reader = copc.FileReader(file_path)
     max_depth = reader.GetDepthAtResolution(resolution)
     hierarchy = {str(node.key): node for node in reader.GetAllChildren() if node.key.d <= max_depth}
-    return File(file, hierarchy, max_depth)
+    return File(file, file_path, hierarchy, max_depth)
 
 
 class CopcDatasetFactory(BaseDataset):
@@ -318,9 +317,7 @@ class CopcDatasetFactory(BaseDataset):
         # parse through each dataset's splits file and merge them
         for dset_name, dataset in datasets.items():
             with open(
-                os.path.join(
-                    dataset_opt.dataroot, dset_name, "copc/splits-v%d.json" % (dataset_opt.dataset_version)
-                )
+                os.path.join(dataset_opt.dataroot, dset_name, "copc/splits-v%d.json" % (dataset_opt.dataset_version))
             ) as fp:
                 dset_splits = json.load(fp)
 
@@ -343,7 +340,14 @@ class CopcDatasetFactory(BaseDataset):
                 if split == "train" and dataset["num_training_samples"] < 0:
                     dataset["num_training_samples"] = len(splits[split][dset_name])
 
-            out_files = Parallel(n_jobs=1)(delayed(get_hierarchy)(file, os.path.join(dataset_opt.dataroot, dset_name, "copc", file, "octree.copc.laz"), dataset_opt.resolution) for file in tqdm(dataset["file_list"]))
+            out_files = Parallel(n_jobs=1)(
+                delayed(get_hierarchy)(
+                    file,
+                    os.path.join(dataset_opt.dataroot, dset_name, "copc", file, "octree.copc.laz"),
+                    dataset_opt.resolution,
+                )
+                for file in tqdm(dataset["file_list"])
+            )
             dataset["files"] = {file.name: file for file in out_files}
 
         self.train_dataset = CopcInternalDataset(
@@ -387,7 +391,6 @@ class CopcDatasetFactory(BaseDataset):
             do_shift=dataset_opt.do_shift,
         )
 
-
     def get_tracker(self, wandb_log: bool, tensorboard_log: bool):
         """Factory method for the tracker
 
@@ -408,25 +411,35 @@ class CopcDatasetFactoryInference(BaseDataset):
     def __init__(self, dataset_opt, keys):
         super().__init__(dataset_opt)
 
-        dataset = get_hierarchy(dataset_opt.inference_file, file_path=dataset_opt.inference_file,
-                                resolution=dataset_opt.resolution)
+        file = get_hierarchy(
+            dataset_opt.inference_file, file_path=dataset_opt.inference_file, resolution=dataset_opt.resolution
+        )
 
-        splits = []
+        datasets = {
+            "inference_dset": {
+                "files": {"inference_file": file},
+                "ignore_classes": [],
+                "filter_classes": [],
+                "class_map_from_to": [],
+            }
+        }
+        splits = {"inference_dset": []}
 
         for dxy, z_list in keys.items():
             d, x, y = ast.literal_eval(dxy)
-            splits.append(DatasetSample(file="", dataset="", depth=d, x=x, y=y, z=z_list))
+            splits["inference_dset"].append(
+                DatasetSample(file="inference_file", dataset="inference_dset", depth=d, x=x, y=y, z=z_list)
+            )
 
         self.test_dataset = CopcInternalDataset(
             root=dataset_opt.dataroot,
             split="inference",
             samples=splits,
-            datasets=dataset,
+            datasets=datasets,
             train_classes=dataset_opt.training_classes,
-            is_inference=True,
             transform=self.test_transform,
             resolution=dataset_opt.resolution,
             min_num_points=dataset_opt.min_num_points,
             do_augment=False,
-            do_shift=dataset_opt.do_shift
+            do_shift=dataset_opt.do_shift,
         )
