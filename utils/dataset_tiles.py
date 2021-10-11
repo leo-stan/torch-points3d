@@ -30,7 +30,7 @@ def cartesian_product(*arrays):
         arr[...,i] = a
     return arr.reshape(-1, la)
 
-def get_keys(datafile_path):
+def get_keys(datafile_path, max_resolution, target_tile_size):
     reader = copc.FileReader(datafile_path)
     header = reader.GetLasHeader()
     max_depth = reader.GetDepthAtResolution(max_resolution)

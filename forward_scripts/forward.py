@@ -1,7 +1,7 @@
 import torch
 import hydra
 import logging
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, open_dict, DictConfig
 import os
 import sys
 import numpy as np
@@ -32,6 +32,7 @@ from utils.dataset_tiles import get_keys
 log = logging.getLogger(__name__)
 import laspy
 import copclib as copc
+from torch_points3d.datasets.segmentation.copc_dataset import CopcDatasetFactoryInference
 
 
 def save_file(filename, output_path, predicted, origindid, debug, confidence_threshold):
@@ -191,28 +192,30 @@ def predict_folder_local(in_file_path, out_file_path, checkpoint_dir, model_name
 
     print("Loading checkpoint...")
     checkpoint = ModelCheckpoint(checkpoint_dir, model_name, metric, strict=True)
-    setattr(checkpoint.data_config, "is_inference", True)
 
-    model = checkpoint.create_model(checkpoint.dataset_properties, weight_name=metric)
+    data_config = OmegaConf.to_container(checkpoint.data_config, resolve=True)
+    data_config["is_inference"] = True
+    model = checkpoint.create_model(DictConfig(checkpoint.dataset_properties), weight_name=metric)
     # log.info(model)
     print("Model size = %i", sum(param.numel() for param in model.parameters() if param.requires_grad))
 
     # Load input file
     reader = copc.FileReader(in_file_path)
-    setattr(checkpoint.data_config, "inference_file", in_file_path)
+    data_config["inference_file"] = in_file_path
 
     # Create the COPC writer
     cfg = copc.LasConfig(reader.GetLasHeader(), reader.GetExtraByteVlr(), )
     writer = copc.FileWriter(out_file_path,cfg,reader.GetCopcHeader().span,reader.GetWkt())
 
-    # Load the tiles from copc file
-    keys = get_keys(in_file_path)
+    data_config["max_resolution"] = 10
+    data_config["target_tile_size"] = 150
 
-    # Add tiles to config file
-    setattr(checkpoint.data_config, "keys", keys)
+    # Load the tiles from copc file
+    # keys = get_keys(in_file_path,checkpoint.data_config["max_resolution"],checkpoint.data_config["target_tile_size"])
+    keys = get_keys(in_file_path,data_config["max_resolution"],data_config["target_tile_size"])
 
     # instanciate CopcInternalDataset
-    dataset = instantiate_dataset(checkpoint.data_config)
+    dataset = CopcDatasetFactoryInference(DictConfig(data_config), keys)
     dataset.create_dataloaders(
         model, batch_size, False, num_workers, False,
     )
