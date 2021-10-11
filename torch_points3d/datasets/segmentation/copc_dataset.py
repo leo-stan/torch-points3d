@@ -15,18 +15,21 @@ import json
 import glob
 from sys import float_info
 from omegaconf import OmegaConf
-import re
+import random
 import time
 from tqdm import tqdm
 from joblib import Parallel, delayed
 
+
 @dataclass
 class DatasetSample:
     file: str
+    dataset: str
     depth: int
     x: int
     y: int
     z: list
+
 
 @dataclass
 class File:
@@ -34,8 +37,26 @@ class File:
     hierarchy: dict
     max_depth: int
 
+
 class CopcInternalDataset(torch.utils.data.Dataset):
-    def __init__(self, root, split, samples, transform, train_classes, resolution, datasets, hUnits=1.0, vUnits=1.0, number_of_sample_per_epoch=-1, is_inference=False, do_augment=False, do_shift=False, augment_transform=None, train_classes_weights=None):
+    def __init__(
+        self,
+        root,
+        split,
+        samples,
+        transform,
+        train_classes,
+        resolution,
+        datasets,
+        hUnits=1.0,
+        vUnits=1.0,
+        is_inference=False,
+        do_augment=False,
+        do_shift=False,
+        augment_transform=None,
+        train_classes_weights=None,
+        min_num_points=1,
+    ):
 
         self.root = root
         self.samples = samples
@@ -44,28 +65,33 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         # [dataset,split,bound]
         # for dataset in samples.keys():
 
+        self.random_sample = not is_inference and split == "train"
+
         # Compute total number of samples
-        if number_of_sample_per_epoch >= 0:
-            self.nb_samples = number_of_sample_per_epoch
+        self.sample_probability = None
+        if self.random_sample:
+            self.nb_samples = sum([dataset["num_training_samples"] for dataset in datasets.values()])
+
+            # the probability any sample will be drawn is equal to the ratio of
+            # how many samples we choose for that dataset to the total number of samples
+            self.sample_probability = []
+            for dset_name, dataset in datasets.items():
+                dset_sampling_probability = dataset["num_training_samples"] / self.nb_samples
+                self.sample_probability.extend([dset_sampling_probability] * len(self.samples[dset_name]))
+
         else:
             self.nb_samples = sum([len(dset_samples) for dset_samples in self.samples.values()])
 
-        dataset_sampling_rates = [x["sampling_rate"] for x in datasets.values()]
-        self.dataset_sampling_rates = dataset_sampling_rates/np.sum(dataset_sampling_rates) # probably of drawing samples from each dataset, sum to 1
-
-        for dset_name, dataset in datasets.items():
-            dataset["files"] = {}
-        
-            #dataset["file_hierarchies"]
-            #for file in tqdm(dataset["file_list"]):
-            def get_hierarchy(file):
-                reader = copc.FileReader(os.path.join(self.root,dset_name,"copc",file,"octree.copc.laz"))
-                max_depth = reader.GetDepthAtResolution(resolution)
-                return File(file, {node.key:node for node in reader.GetAllChildren() if node.key.d <= max_depth}, max_depth)
-            out_files = Parallel(n_jobs=-1)(delayed(get_hierarchy)(file) for file in tqdm(dataset["file_list"]))
-            dataset["files"] = {file.name: file for file in out_files}
+        # flatten the list of samples
+        self.samples = [item for sublist in self.samples.values() for item in sublist]
+        if self.sample_probability is not None:
+            # normalize sample probability
+            self.sample_probability = np.array(self.sample_probability)
+            self.sample_probability = self.sample_probability / np.sum(self.sample_probability)
+            assert len(self.samples) == len(self.sample_probability)
 
         self.is_inference = is_inference
+        self.min_num_points = max(1, min_num_points)
         self.resolution = resolution
         self.transform = transform
         self.train_classes = train_classes
@@ -75,48 +101,47 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         self.do_shift = do_shift
         self.augment_transform = augment_transform
         self.datasets = datasets
-        
+        self.retry_idx = 0
+
         if split == "train":
             self.weight_classes = torch.Tensor(train_classes_weights)
 
     def __len__(self):
         return self.nb_samples
 
-    def get_all_key_children(self, key, max_depth, hierarchy, children=[]):
+    # given a key, recursively check if each of its 8 children exist in the hierarchy
+    def get_all_key_children(self, key, max_depth, hierarchy, children):
+        # stop once we reach max_depth, since none of its children can exist
         if key.d >= max_depth:
             return
         for child in key.GetChildren():
-            if child in hierarchy:
-                children.append(hierarchy[child])
+            if str(child) in hierarchy:
+                # if the key exists, add it to the output, and check if any of its children exist
+                children.append(hierarchy[str(child)])
                 self.get_all_key_children(child, max_depth, hierarchy, children)
 
     def __getitem__(self, idx):
-        t = time.time()
+        if self.random_sample:
+            # randomly choose a sample
+            sample = np.random.choice(self.samples, p=self.sample_probability)
+        else:
+            sample = self.samples[idx]
 
-        # randomly choose a dataset
-        dset_name = np.random.choice(list(self.samples.keys()), p=self.dataset_sampling_rates)
-        # randomly choose a sample
-        sample = np.random.choice(list(self.samples[dset_name]))
-        dataset = self.datasets[dset_name]
+        dataset = self.datasets[sample.dataset]
         file = dataset["files"][sample.file]
         hierarchy = file.hierarchy
-        #print("header1: %f" % (time.time() - t))
 
-        reader = copc.FileReader(os.path.join(self.root,dset_name,"copc",sample.file,"octree.copc.laz"))
+        reader = copc.FileReader(os.path.join(self.root, sample.dataset, "copc", sample.file, "octree.copc.laz"))
         header = reader.GetLasHeader()
-        #print("header2: %f" % (time.time() - t))
-#
+        max_depth = file.max_depth
+
         # Extract nearest depth, x, and y from sample
         nearest_depth, x, y = sample.depth, sample.x, sample.y
-        max_depth = file.max_depth
-        #print("header3: %f" % (time.time() - t))
         # Fill z as 0, since we don't care about that dimension
-        sample_bounds = copc.Box(copc.VoxelKey(nearest_depth,x,y,0), header)
+        sample_bounds = copc.Box(copc.VoxelKey(nearest_depth, x, y, 0), header)
         # Make the tile 2D
         sample_bounds.z_min = float_info.min
         sample_bounds.z_max = float_info.max
-        #print("header: %f" % (time.time() - t))
-        #t = time.time()
 
         # If we're doing inference we need to track where the points came from
         if self.is_inference:
@@ -149,87 +174,76 @@ class CopcInternalDataset(torch.utils.data.Dataset):
 
         # If training we can just grab points without tracking
         else:
-            # Test possible Zs to see if key exist self.samples[dataset][split][sample]
-            valid_nodes = set()
+            valid_nodes = {}
+            # check each possible z to see if it, or any of its parents, exist
             for i, z in enumerate(sample.z):
-                key = copc.VoxelKey(nearest_depth,x,y,z)
+                start_key = copc.VoxelKey(nearest_depth, x, y, z)
 
-                while key not in hierarchy:
-                    if key.d < 0: 
-                        raise RuntimeError("This shouldn't happen!")
-                    key = key.GetParent()
-                
-                if key.d == nearest_depth:
+                # start by checking if the node itself exists
+                if str(start_key) in hierarchy:
+                    # if the node exists, then get all its children
                     child_nodes = []
-                    self.get_all_key_children(key, max_depth, hierarchy, child_nodes)
+                    self.get_all_key_children(start_key, max_depth, hierarchy, child_nodes)
                     for child_node in child_nodes:
-                        valid_nodes.add(child_node)
-
-                if key not in hierarchy:
-                    raise RuntimeError("This shouldn't happen!")
-                valid_nodes.add(hierarchy[key])
+                        valid_nodes[str(child_node.key)] = child_node
+                    
+                else:
+                    # if the node doens't exist, get its first parent to exist
+                    while str(start_key) not in hierarchy:
+                        if start_key.d < 0:
+                            raise RuntimeError("This shouldn't happen!")
+                        start_key = start_key.GetParent()
+                # then, get all nodes from depth 0 to the current depth
+                key = start_key
+                while key.IsValid():
+                    valid_nodes[str(key)] = hierarchy[str(key)]
+                    key = key.GetParent()
 
             # Process keys that exist
             copc_points = copc.Points(header)
-            loaded_keys = set()
-            #print("find nodes: %f" % (time.time() - t))
-           # t = time.time()
 
-            for node in valid_nodes:
+            for node in valid_nodes.values():
                 key = node.key
-                if key.d == nearest_depth:
-                    child_keys = []
-                    self.get_all_key_children(key, max_depth, hierarchy, child_keys)
-                    pass
-                    #copc_points.AddPoints(reader.GetAllChildrenPoints(key, self.resolution))
-                    
-                while key not in loaded_keys and key.d >= 0:
-                    if key not in hierarchy:
-                        raise RuntimeError("This shouldn't happen!")
-
-                    current_node = hierarchy[key]
-                    copc_points.AddPoints(reader.GetPoints(current_node).GetWithin(sample_bounds))
-                    loaded_keys.add(key)
-                    key = key.GetParent()
-          #  print("read nodes: %f" % (time.time() - t))
-          #  t = time.time()
+                copc_points.AddPoints(reader.GetPoints(node).GetWithin(sample_bounds))
 
             points = np.stack([copc_points.X, copc_points.Y, copc_points.Z], axis=1)
             classification = np.array(copc_points.Classification).astype(np.int)
-           # print("points: %f" % (time.time() - t))
-          #  t = time.time()
+            y = torch.from_numpy(classification)
 
-            if (len(points) == 0):
-                # if there's no points in this sample, just get another sample:
-                return self[0]
-        
-        #if len(self.class_maps[dataset]):
-        x_min = np.min(points[:,0])
-        y_min = np.min(points[:,1])
-        x_max = np.max(points[:,0])
-        y_max = np.max(points[:,1])
+        # we need this check because numpy will error for empty array
+        if len(points) >= self.min_num_points:
+            x_min = np.min(points[:, 0])
+            y_min = np.min(points[:, 1])
+            x_max = np.max(points[:, 0])
+            y_max = np.max(points[:, 1])
 
-        xoff = (int(x_min) + int(x_max))//2
-        yoff = (int(y_min) + int(y_max))//2
-        points[:,0] -= np.round(xoff).astype(int)
-        points[:,1] -= np.round(yoff).astype(int)
+            xoff = (int(x_min) + int(x_max)) // 2
+            yoff = (int(y_min) + int(y_max)) // 2
+            points[:, 0] -= np.round(xoff).astype(int)
+            points[:, 1] -= np.round(yoff).astype(int)
 
-        # Z centering using mean
-        z_mean = np.mean(points[:, 2])
-        points[:,2] -= int(z_mean)
+            # Z centering using mean
+            z_mean = np.mean(points[:, 2])
+            points[:, 2] -= int(z_mean)
 
-        points[:,:2] *= self.hUnits
-        points[:,2] *= self.vUnits
+            points[:, :2] *= self.hUnits
+            points[:, 2] *= self.vUnits
 
-        y = torch.from_numpy(classification)
-        for filter in dataset["filter_classes"]:
-            mask = y != filter
-            y = y[mask]
-            points = points[mask]
-        y = self._remap_labels(y, dataset)
-        print(points.shape)
+            for filter in dataset["filter_classes"]:
+                mask = y != filter
+                y = y[mask]
+                points = points[mask]
+            y = self._remap_labels(y, dataset)
 
         data = Data(pos=torch.from_numpy(points).type(torch.float), y=y)
+
+        if len(data.pos) < self.min_num_points:
+            if self.random_sample:
+                # if there's no points in this sample, just get another sample:
+                return self[0]
+            else:
+                # there's not really a great way to handle this
+                return self[random.randint(0, self.nb_samples-1)]
 
         if self.is_inference:
             data = SaveOriginalPosId()(data)
@@ -242,14 +256,11 @@ class CopcInternalDataset(torch.utils.data.Dataset):
 
         if self.do_shift:
             data = ShiftVoxels()(data)
-        print(points.shape)
-        #print("getdata: %f" % (time.time() - t))
-        #t = time.time()
 
         return data
 
     def _remap_labels(self, labels, dataset):
-        NUM_CLASSES = 256 # arbitrary
+        NUM_CLASSES = 256  # arbitrary
         """Remaps labels to [0 ; num_labels -1]. Can be overriden."""
         new_labels = labels.clone()
 
@@ -297,20 +308,44 @@ class CopcDataset(BaseDataset):
 
         splits = {"train": {}, "test": {}, "val": {}}
         datasets = OmegaConf.to_container(dataset_opt.datasets, True)
-        if not dataset_opt.is_inference:            
+        if not dataset_opt.is_inference:
             for dset_name, dataset in datasets.items():
-                with open(os.path.join(dataset_opt.dataroot, dset_name, "copc/splits-v%d.json" % (dataset_opt.dataset_version))) as fp:
+                with open(
+                    os.path.join(
+                        dataset_opt.dataroot, dset_name, "copc/splits-v%d.json" % (dataset_opt.dataset_version)
+                    )
+                ) as fp:
                     dset_splits = json.load(fp)
 
                 dataset["file_list"] = set()
                 for split in splits.keys():
                     splits[split][dset_name] = []
+
+                    if split == "train" and dataset["num_training_samples"] == 0:
+                        continue
+
                     for file_name, file_items in dset_splits[split].items():
                         dataset["file_list"].add(file_name)
                         for dxy, z_list in file_items.items():
-                            d, x, y  = ast.literal_eval(dxy)
-                            splits[split][dset_name].append(DatasetSample(file=file_name, depth=d, x=x, y=y, z=z_list))
-                
+                            d, x, y = ast.literal_eval(dxy)
+                            splits[split][dset_name].append(
+                                DatasetSample(file=file_name, dataset=dset_name, depth=d, x=x, y=y, z=z_list)
+                            )
+
+                    if split == "train" and dataset["num_training_samples"] < 0:
+                        dataset["num_training_samples"] = len(splits[split][dset_name])
+
+                def get_hierarchy(file):
+                    reader = copc.FileReader(
+                        os.path.join(dataset_opt.dataroot, dset_name, "copc", file, "octree.copc.laz")
+                    )
+                    max_depth = reader.GetDepthAtResolution(dataset_opt.resolution)
+                    hierarchy = {str(node.key): node for node in reader.GetAllChildren() if node.key.d <= max_depth}
+                    return File(file, hierarchy, max_depth)
+
+                out_files = Parallel(n_jobs=1)(delayed(get_hierarchy)(file) for file in tqdm(dataset["file_list"]))
+                dataset["files"] = {file.name: file for file in out_files}
+
             self.train_dataset = CopcInternalDataset(
                 root=dataset_opt.dataroot,
                 split="train",
@@ -318,24 +353,25 @@ class CopcDataset(BaseDataset):
                 transform=self.train_transform,
                 train_classes=dataset_opt.training_classes,
                 resolution=dataset_opt.resolution,
+                min_num_points=dataset_opt.min_num_points,
                 datasets=datasets,
                 do_augment=dataset_opt.do_augment,
                 do_shift=dataset_opt.do_shift,
-                number_of_sample_per_epoch=dataset_opt.number_of_sample_per_epoch,
                 # augment_transform=instantiate_transforms(dataset_opt.augment),
-                train_classes_weights=dataset_opt.training_classes_weights,)
+                train_classes_weights=dataset_opt.training_classes_weights,
+            )
 
             self.val_dataset = CopcInternalDataset(
                 root=dataset_opt.dataroot,
                 split="val",
                 samples=splits["val"],
                 datasets=datasets,
-                number_of_sample_per_epoch=-1,
                 train_classes=dataset_opt.training_classes,
                 transform=self.val_transform,
                 resolution=dataset_opt.resolution,
+                min_num_points=dataset_opt.min_num_points,
                 do_augment=False,
-                do_shift=dataset_opt.do_shift
+                do_shift=dataset_opt.do_shift,
             )
 
             self.test_dataset = CopcInternalDataset(
@@ -344,19 +380,20 @@ class CopcDataset(BaseDataset):
                 samples=splits["test"],
                 datasets=datasets,
                 train_classes=dataset_opt.training_classes,
-                number_of_sample_per_epoch=-1,
                 transform=self.test_transform,
                 resolution=dataset_opt.resolution,
+                min_num_points=dataset_opt.min_num_points,
                 do_augment=False,
-                do_shift=dataset_opt.do_shift
+                do_shift=dataset_opt.do_shift,
             )
         else:
 
             self.test_dataset = CopcInternalDataset(
                 dataset_opt.dataroot,
-                samples= {}, #TODO
+                samples={},  # TODO
                 transform=self.test_transform,
                 resolution=dataset_opt.resolution,
+                min_num_points=dataset_opt.min_num_points,
                 is_inference=True,
                 do_augment=False,
                 hUnits=20,

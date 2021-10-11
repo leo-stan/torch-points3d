@@ -40,7 +40,6 @@ wandb:
   config:
     resolution: ${data.resolution}
     model_name: ${model_name}
-    number_of_sample_per_epoch: ${data.number_of_sample_per_epoch}
     training_classes_weights: ${data.training_classes_weights}
 
   # parameters for TensorBoard Visualization

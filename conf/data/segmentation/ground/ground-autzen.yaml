@@ -5,7 +5,7 @@ data:
   is_inference: False
   resolution: 0.5
   dataset_version: 1
-  number_of_sample_per_epoch: -1  # Number of random sample per epoch, -1 for all samples
+  min_num_points: 200 # minimum number of points for a tile to be considered a valid sample
   datasets:
     #    - name: name
     #        sampling_rate: # How often this dataset get selected to draw samples (0=never, 1=same probability as other datasets)
@@ -13,7 +13,7 @@ data:
     #        filter_classes: [ ] # Classes for which we remove the points before passing to model
     #        class_map_from_to: [[from,to],[from,to],[from,to],...] # Map classes [from,to]
     autzen:
-      sampling_rate: 1
+      num_training_samples: -1  # Number of random sample per epoch, -1 for all samples
       ignore_classes: [0] # class 0 has a lot of ground points mixed in
       filter_classes: []
       class_map_from_to: [[9,2]]
