@@ -61,10 +61,6 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         self.root = root
         self.samples = samples
 
-        # # TODO: Compute nb samples per dataset and total number of samples
-        # [dataset,split,bound]
-        # for dataset in samples.keys():
-
         self.random_sample = not is_inference and split == "train"
 
         # Compute total number of samples
@@ -126,15 +122,20 @@ class CopcInternalDataset(torch.utils.data.Dataset):
             sample = np.random.choice(self.samples, p=self.sample_probability)
         else:
             sample = self.samples[idx]
+        if not self.is_inference:
+            dataset = self.datasets[sample.dataset]
+            file = dataset["files"][sample.file]
+            hierarchy = file.hierarchy
 
-        dataset = self.datasets[sample.dataset]
-        file = dataset["files"][sample.file]
-        hierarchy = file.hierarchy
+            file_path = os.path.join(self.root,sample.dataset,"copc",sample.file,"octree.copc.laz")
+            reader = copc.FileReader(file_path)
+            max_depth = file.max_depth
+        else:
+            hierarchy = self.datasets.hierarchy
+            max_depth = self.datasets.max_depth
+            reader = copc.FileReader(self.datasets.name)
 
-        file_path = os.path.join(self.root,sample.dataset,"copc",sample.file,"octree.copc.laz")
-        reader = copc.FileReader(file_path)
         header = reader.GetLasHeader()
-        max_depth = file.max_depth
 
         # Extract nearest depth, x, and y from sample
         nearest_depth, x, y = sample.depth, sample.x, sample.y
@@ -300,6 +301,12 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         return len(self.train_classes) + 1
 
 
+def get_hierarchy(file, file_path, resolution):
+    reader = copc.FileReader(file_path)
+    max_depth = reader.GetDepthAtResolution(resolution)
+    hierarchy = {str(node.key): node for node in reader.GetAllChildren() if node.key.d <= max_depth}
+    return File(file, hierarchy, max_depth)
+
 class CopcDataset(BaseDataset):
     def __init__(self, dataset_opt):
         super().__init__(dataset_opt)
@@ -333,15 +340,7 @@ class CopcDataset(BaseDataset):
                     if split == "train" and dataset["num_training_samples"] < 0:
                         dataset["num_training_samples"] = len(splits[split][dset_name])
 
-                def get_hierarchy(file):
-                    reader = copc.FileReader(
-                        os.path.join(dataset_opt.dataroot, dset_name, "copc", file, "octree.copc.laz")
-                    )
-                    max_depth = reader.GetDepthAtResolution(dataset_opt.resolution)
-                    hierarchy = {str(node.key): node for node in reader.GetAllChildren() if node.key.d <= max_depth}
-                    return File(file, hierarchy, max_depth)
-
-                out_files = Parallel(n_jobs=1)(delayed(get_hierarchy)(file) for file in tqdm(dataset["file_list"]))
+                out_files = Parallel(n_jobs=1)(delayed(get_hierarchy)(file, os.path.join(dataset_opt.dataroot, dset_name, "copc", file, "octree.copc.laz"), dataset_opt.resolution) for file in tqdm(dataset["file_list"]))
                 dataset["files"] = {file.name: file for file in out_files}
 
             self.train_dataset = CopcInternalDataset(
@@ -386,11 +385,13 @@ class CopcDataset(BaseDataset):
             )
         else:
 
+            dataset = get_hierarchy(dataset_opt.inference_file, file_path=dataset_opt.inference_file,resolution=dataset_opt.resolution)
+
             self.test_dataset = CopcInternalDataset(
                 root=dataset_opt.dataroot,
                 split="inference",
-                samples=splits["test"],
-                datasets=dataset_opt.datasets,
+                samples=dataset_opt.keys,
+                datasets=dataset,
                 train_classes=dataset_opt.training_classes,
                 is_inference=True,
                 transform=self.test_transform,
