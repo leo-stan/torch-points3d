@@ -3,9 +3,7 @@ import hydra
 import logging
 from omegaconf import OmegaConf
 import os
-import sys
 import numpy as np
-from typing import Dict
 import wandb
 from joblib import Parallel, delayed
 import traceback
@@ -43,21 +41,25 @@ def save_file(filename, output_path, predicted, origindid, debug, confidence_thr
     except FileExistsError:
         pass
 
-    cfg = copc.LasConfig(reader.GetLasHeader(), reader.GetExtraByteVlr(), )
+    cfg = copc.LasConfig(
+        reader.GetLasHeader(),
+        reader.GetExtraByteVlr(),
+    )
     # Create the COPC writer
-    writer = copc.FileWriter(os.path.join(out_dir, os.path.basename(filename)),cfg,reader.GetCopcHeader().span,
-        reader.GetWkt())
+    writer = copc.FileWriter(
+        os.path.join(out_dir, os.path.basename(filename)), cfg, reader.GetCopcHeader().span, reader.GetWkt()
+    )
 
     # TODO
     # For each copc split file
     # Load all modified nodes for file
     # For each Reader node
-        # Check if node was modified
-        #if modified
-            # Update the point's classification
-                #Get the predicted classification
-                #Reverse map the classification to the dataset
-        # Write the node
+    # Check if node was modified
+    # if modified
+    # Update the point's classification
+    # Get the predicted classification
+    # Reverse map the classification to the dataset
+    # Write the node
 
     # classifications = np.zeros(len(las.points), dtype=np.uint8)
     # probs = torch.nn.functional.softmax(torch.from_numpy(np.copy(predicted)), dim=1)
@@ -123,12 +125,22 @@ def run(model: BaseModel, dataset, device, output_path, debug, confidence_thresh
                         for sample in range(num_batches):
                             predicted = BaseDataset.get_sample(data, "_pred", sample, model.conv_type).cpu().numpy()
                             # TODO
-                            origindid = BaseDataset.get_sample(data, SaveOriginalPosId.KEY, sample,
-                                                               model.conv_type).cpu().numpy()
+                            origindid = (
+                                BaseDataset.get_sample(data, SaveOriginalPosId.KEY, sample, model.conv_type)
+                                .cpu()
+                                .numpy()
+                            )
                             filename = dataset.test_dataset[0].files[data.file[sample][0]]
-                            save_args.append({'filename': filename, 'output_path': output_path, 'predicted': predicted,
-                                              'origindid': origindid, 'debug': debug,
-                                              'confidence_threshold': confidence_threshold})
+                            save_args.append(
+                                {
+                                    "filename": filename,
+                                    "output_path": output_path,
+                                    "predicted": predicted,
+                                    "origindid": origindid,
+                                    "debug": debug,
+                                    "confidence_threshold": confidence_threshold,
+                                }
+                            )
 
                         save_fn = save_file
                         if debug:
@@ -138,11 +150,24 @@ def run(model: BaseModel, dataset, device, output_path, debug, confidence_thresh
                 except Exception:
                     print("Error processing file with error:")
                     print(traceback.format_exc())
-            print('done!')
+            print("done!")
 
 
-def predict_folder(in_folder, out_folder, wandb_run, wandb_dir, model_name="ResUNet32", metric="miou", cuda=False,
-                   num_workers=2, batch_size=1, hUnits=1.0, vUnits=1.0, debug=False, confidence_threshold=0.):
+def predict_folder(
+    in_folder,
+    out_folder,
+    wandb_run,
+    wandb_dir,
+    model_name="ResUNet32",
+    metric="miou",
+    cuda=False,
+    num_workers=2,
+    batch_size=1,
+    hUnits=1.0,
+    vUnits=1.0,
+    debug=False,
+    confidence_threshold=0.0,
+):
     device = torch.device("cuda" if (torch.cuda.is_available() and cuda) else "cpu")
     print("DEVICE : {}".format(device))
 
@@ -165,7 +190,11 @@ def predict_folder(in_folder, out_folder, wandb_run, wandb_dir, model_name="ResU
 
     dataset = instantiate_dataset(checkpoint.data_config)
     dataset.create_dataloaders(
-        model, batch_size, False, num_workers, False,
+        model,
+        batch_size,
+        False,
+        num_workers,
+        False,
     )
     print(dataset)
     print("Scaling horizontal by %f and vertical by %f" % (hUnits, vUnits))
@@ -181,8 +210,18 @@ def predict_folder(in_folder, out_folder, wandb_run, wandb_dir, model_name="ResU
     run(model, dataset, device, out_folder, debug, confidence_threshold)
 
 
-def predict_folder_local(in_folder, out_folder, checkpoint_dir, model_name="ResUNet32", metric="miou", cuda=False,
-                         num_workers=2, batch_size=1, debug=False, confidence_threshold=0.):
+def predict_folder_local(
+    in_folder,
+    out_folder,
+    checkpoint_dir,
+    model_name="ResUNet32",
+    metric="miou",
+    cuda=False,
+    num_workers=2,
+    batch_size=1,
+    debug=False,
+    confidence_threshold=0.0,
+):
     device = torch.device("cuda" if (torch.cuda.is_available() and cuda) else "cpu")
     print("DEVICE : {}".format(device))
 
@@ -201,7 +240,11 @@ def predict_folder_local(in_folder, out_folder, checkpoint_dir, model_name="ResU
 
     dataset = instantiate_dataset(checkpoint.data_config)
     dataset.create_dataloaders(
-        model, batch_size, False, num_workers, False,
+        model,
+        batch_size,
+        False,
+        num_workers,
+        False,
     )
     print(dataset)
 
@@ -215,7 +258,14 @@ def predict_folder_local(in_folder, out_folder, checkpoint_dir, model_name="ResU
 
 
 if __name__ == "__main__":
-    predict_folder('/media/machinelearning/machine-learning/test-data/split/canyon',
-                   '/media/machinelearning/machine-learning/test-data/test-out', 'rock-robotic/ground-v1/gdq4kqj0',
-                   wandb_dir='/media/machinelearning/machine-learning/torch-points3d/wandb', model_name="ResUNet32",
-                   metric="miou", cuda=False, num_workers=8, batch_size=8)
+    predict_folder(
+        "/media/machinelearning/machine-learning/test-data/split/canyon",
+        "/media/machinelearning/machine-learning/test-data/test-out",
+        "rock-robotic/ground-v1/gdq4kqj0",
+        wandb_dir="/media/machinelearning/machine-learning/torch-points3d/wandb",
+        model_name="ResUNet32",
+        metric="miou",
+        cuda=False,
+        num_workers=8,
+        batch_size=8,
+    )
