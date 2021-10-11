@@ -15,7 +15,7 @@ import json
 import glob
 from sys import float_info
 from omegaconf import OmegaConf
-import re
+import random
 import time
 from tqdm import tqdm
 from joblib import Parallel, delayed
@@ -101,6 +101,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         self.do_shift = do_shift
         self.augment_transform = augment_transform
         self.datasets = datasets
+        self.retry_idx = 0
 
         if split == "train":
             self.weight_classes = torch.Tensor(train_classes_weights)
@@ -185,13 +186,13 @@ class CopcInternalDataset(torch.utils.data.Dataset):
                     self.get_all_key_children(start_key, max_depth, hierarchy, child_nodes)
                     for child_node in child_nodes:
                         valid_nodes[str(child_node.key)] = child_node
+                    
                 else:
                     # if the node doens't exist, get its first parent to exist
                     while str(start_key) not in hierarchy:
                         if start_key.d < 0:
                             raise RuntimeError("This shouldn't happen!")
                         start_key = start_key.GetParent()
-
                 # then, get all nodes from depth 0 to the current depth
                 key = start_key
                 while key.IsValid():
@@ -207,34 +208,32 @@ class CopcInternalDataset(torch.utils.data.Dataset):
 
             points = np.stack([copc_points.X, copc_points.Y, copc_points.Z], axis=1)
             classification = np.array(copc_points.Classification).astype(np.int)
+            y = torch.from_numpy(classification)
 
-            # if there's no points in this sample, just get another sample:
-            if len(points) < self.min_num_points:
-                return self[0]
+        # we need this check because numpy will error for empty array
+        if len(points) >= self.min_num_points:
+            x_min = np.min(points[:, 0])
+            y_min = np.min(points[:, 1])
+            x_max = np.max(points[:, 0])
+            y_max = np.max(points[:, 1])
 
-        x_min = np.min(points[:, 0])
-        y_min = np.min(points[:, 1])
-        x_max = np.max(points[:, 0])
-        y_max = np.max(points[:, 1])
+            xoff = (int(x_min) + int(x_max)) // 2
+            yoff = (int(y_min) + int(y_max)) // 2
+            points[:, 0] -= np.round(xoff).astype(int)
+            points[:, 1] -= np.round(yoff).astype(int)
 
-        xoff = (int(x_min) + int(x_max)) // 2
-        yoff = (int(y_min) + int(y_max)) // 2
-        points[:, 0] -= np.round(xoff).astype(int)
-        points[:, 1] -= np.round(yoff).astype(int)
+            # Z centering using mean
+            z_mean = np.mean(points[:, 2])
+            points[:, 2] -= int(z_mean)
 
-        # Z centering using mean
-        z_mean = np.mean(points[:, 2])
-        points[:, 2] -= int(z_mean)
+            points[:, :2] *= self.hUnits
+            points[:, 2] *= self.vUnits
 
-        points[:, :2] *= self.hUnits
-        points[:, 2] *= self.vUnits
-
-        y = torch.from_numpy(classification)
-        for filter in dataset["filter_classes"]:
-            mask = y != filter
-            y = y[mask]
-            points = points[mask]
-        y = self._remap_labels(y, dataset)
+            for filter in dataset["filter_classes"]:
+                mask = y != filter
+                y = y[mask]
+                points = points[mask]
+            y = self._remap_labels(y, dataset)
 
         data = Data(pos=torch.from_numpy(points).type(torch.float), y=y)
 
@@ -243,9 +242,8 @@ class CopcInternalDataset(torch.utils.data.Dataset):
                 # if there's no points in this sample, just get another sample:
                 return self[0]
             else:
-                raise NotImplementedError()
-                # what to do?
-                pass
+                # there's not really a great way to handle this
+                return self[random.randint(0, self.nb_samples-1)]
 
         if self.is_inference:
             data = SaveOriginalPosId()(data)
@@ -345,7 +343,7 @@ class CopcDataset(BaseDataset):
                     hierarchy = {str(node.key): node for node in reader.GetAllChildren() if node.key.d <= max_depth}
                     return File(file, hierarchy, max_depth)
 
-                out_files = Parallel(n_jobs=-1)(delayed(get_hierarchy)(file) for file in tqdm(dataset["file_list"]))
+                out_files = Parallel(n_jobs=1)(delayed(get_hierarchy)(file) for file in tqdm(dataset["file_list"]))
                 dataset["files"] = {file.name: file for file in out_files}
 
             self.train_dataset = CopcInternalDataset(
