@@ -26,6 +26,7 @@ from torch_points3d.datasets.segmentation.copc_dataset import CopcDatasetFactory
 
 import argparse
 
+
 def update_node_predictions(compressed_points, node, changed_idx, prediction, file_header):
     uncompressed_copc_points = copc.DecompressBytes(compressed_points, file_header, node.point_count)
     copc_points = copc.Points.Unpack(uncompressed_copc_points, file_header)
@@ -186,8 +187,18 @@ def predict_folder(
     run(model, dataset, device, out_folder, debug, confidence_threshold)
 
 
-def predict_folder_local(in_file_path, out_file_path, checkpoint_dir, model_name="ResUNet32", metric="miou", cuda=False,
-                         num_workers=2, batch_size=1, debug=False, confidence_threshold=0.):
+def predict_folder_local(
+    in_file_path,
+    out_file_path,
+    checkpoint_dir,
+    model_name="ResUNet32",
+    metric="miou",
+    cuda=False,
+    num_workers=2,
+    batch_size=1,
+    debug=False,
+    confidence_threshold=0.0,
+):
     device = torch.device("cuda" if (torch.cuda.is_available() and cuda) else "cpu")
     print("DEVICE : {}".format(device))
 
@@ -207,20 +218,27 @@ def predict_folder_local(in_file_path, out_file_path, checkpoint_dir, model_name
     data_config["inference_file"] = in_file_path
 
     # Create the COPC writer
-    cfg = copc.LasConfig(reader.GetLasHeader(), reader.GetExtraByteVlr(), )
-    writer = copc.FileWriter(out_file_path,cfg,reader.GetCopcHeader().span,reader.GetWkt())
+    cfg = copc.LasConfig(
+        reader.GetLasHeader(),
+        reader.GetExtraByteVlr(),
+    )
+    writer = copc.FileWriter(out_file_path, cfg, reader.GetCopcHeader().span, reader.GetWkt())
 
     data_config["max_resolution"] = 10
     data_config["target_tile_size"] = 150
 
     # Load the tiles from copc file
     # keys = get_keys(in_file_path,checkpoint.data_config["max_resolution"],checkpoint.data_config["target_tile_size"])
-    keys = get_keys(in_file_path,data_config["max_resolution"],data_config["target_tile_size"])
+    keys = get_keys(in_file_path, data_config["max_resolution"], data_config["target_tile_size"])
 
     # instanciate CopcInternalDataset
     dataset = CopcDatasetFactoryInference(DictConfig(data_config), keys)
     dataset.create_dataloaders(
-        model, batch_size, False, num_workers, False,
+        model,
+        batch_size,
+        False,
+        num_workers,
+        False,
     )
     print(dataset)
 
@@ -238,16 +256,27 @@ if __name__ == "__main__":
     #                metric="miou", cuda=False, num_workers=8, batch_size=8)
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('in_file_path', type=str, help='Absolute path to file to process')
-    parser.add_argument('out_file_path', type=str, help='Absolute path to file to save')
-    parser.add_argument('checkpoint_dir', type=str, help='Absolute path to checkpoint directory')
-    parser.add_argument('model_name', type=str, help='Model Name')
-    parser.add_argument('metric', type=str, help='miou')
-    parser.add_argument('cuda', type=bool, default=False, help='cuda use flag')
-    parser.add_argument('num_workers', type=int, default=1, help='Number of CPU workers')
-    parser.add_argument('batch_size', type=int, default=1, help='Batch Size')
-    parser.add_argument('confidence_threshold', type=float, default=0.5, help='Confidence Threshold')
+    parser.add_argument("in_file_path", type=str, help="Absolute path to file to process")
+    parser.add_argument("out_file_path", type=str, help="Absolute path to file to save")
+    parser.add_argument("checkpoint_dir", type=str, help="Absolute path to checkpoint directory")
+    parser.add_argument("model_name", type=str, help="Model Name")
+    parser.add_argument("metric", type=str, help="miou")
+    parser.add_argument("cuda", type=bool, default=False, help="cuda use flag")
+    parser.add_argument("num_workers", type=int, default=1, help="Number of CPU workers")
+    parser.add_argument("batch_size", type=int, default=1, help="Batch Size")
+    parser.add_argument("confidence_threshold", type=float, default=0.5, help="Confidence Threshold")
 
     args = parser.parse_args()
 
-    predict_folder_local(args.in_file_path, args.out_file_path, args.checkpoint_dir, model_name=args.model_name, metric=args.metric, cuda=args.cuda, num_workers=args.num_workers, batch_size=args.batch_size, debug=False, confidence_threshold=args.confidence_threhsold)
+    predict_folder_local(
+        args.in_file_path,
+        args.out_file_path,
+        args.checkpoint_dir,
+        model_name=args.model_name,
+        metric=args.metric,
+        cuda=args.cuda,
+        num_workers=args.num_workers,
+        batch_size=args.batch_size,
+        debug=False,
+        confidence_threshold=args.confidence_threhsold,
+    )
