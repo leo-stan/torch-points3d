@@ -1,5 +1,6 @@
 import json
 
+
 def query_depth(path, queryRes):
     with open(path) as f:
         metadata = json.load(f)
@@ -15,6 +16,7 @@ def query_depth(path, queryRes):
         currentDepth += 1
 
     return currentRes, currentDepth, metadata
+
 
 if __name__ == "__main__":
     queryRes = 0.5
