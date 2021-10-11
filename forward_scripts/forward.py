@@ -260,11 +260,11 @@ if __name__ == "__main__":
     parser.add_argument("out_file_path", type=str, help="Absolute path to file to save")
     parser.add_argument("checkpoint_dir", type=str, help="Absolute path to checkpoint directory")
     parser.add_argument("model_name", type=str, help="Model Name")
-    parser.add_argument("metric", type=str, help="miou")
-    parser.add_argument("cuda", type=bool, default=False, help="cuda use flag")
-    parser.add_argument("num_workers", type=int, default=1, help="Number of CPU workers")
-    parser.add_argument("batch_size", type=int, default=1, help="Batch Size")
-    parser.add_argument("confidence_threshold", type=float, default=0.5, help="Confidence Threshold")
+    parser.add_argument("--metric", type=str, help="miou")
+    parser.add_argument("--cuda", type=bool, default=False, help="cuda use flag")
+    parser.add_argument("--num_workers", type=int, default=1, help="Number of CPU workers")
+    parser.add_argument("--batch_size", type=int, default=1, help="Batch Size")
+    parser.add_argument("--confidence_threshold", type=float, default=0.5, help="Confidence Threshold")
 
     args = parser.parse_args()
 
@@ -278,5 +278,5 @@ if __name__ == "__main__":
         num_workers=args.num_workers,
         batch_size=args.batch_size,
         debug=False,
-        confidence_threshold=args.confidence_threhsold,
+        confidence_threshold=args.confidence_threshold,
     )
