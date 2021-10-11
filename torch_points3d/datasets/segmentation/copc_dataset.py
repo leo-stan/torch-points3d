@@ -131,7 +131,8 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         file = dataset["files"][sample.file]
         hierarchy = file.hierarchy
 
-        reader = copc.FileReader(os.path.join(self.root, sample.dataset, "copc", sample.file, "octree.copc.laz"))
+        file_path = os.path.join(self.root,sample.dataset,"copc",sample.file,"octree.copc.laz")
+        reader = copc.FileReader(file_path)
         header = reader.GetLasHeader()
         max_depth = file.max_depth
 
@@ -143,72 +144,70 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         sample_bounds.z_min = float_info.min
         sample_bounds.z_max = float_info.max
 
-        # If we're doing inference we need to track where the points came from
-        if self.is_inference:
-            pass
-            # TODO [Leo]: REDO this for new splits
-            # all_points = []  # Nx3
-            # all_points_key = []  # N
-            # all_points_idx = []  # N
-            # # for depth in range(max_depth):
-            # nodes = reader.GetNodesIntersectBox(sample_bounds, resolution=self.resolution)
-            # if len(nodes) != max_depth+1:
-            #     raise Exception("More nodes than depth levels.")
-            # for node in nodes:
-            #     points = reader.GetPoints(node)
-            #     node_points_within_bounds_idx = []
-            #     node_points_within_bounds = []
-            #     for id, point in enumerate(points):
-            #         if point.Within(sample[1]):
-            #             node_points_within_bounds_idx.append(id)
-            #             node_points_within_bounds.append(point)
-            #
-            #     all_points.append(node_points_within_bounds)
-            #     all_points_key.append([node.key] * len(node_points_within_bounds))
-            #     all_points_idx.append(node_points_within_bounds_idx)
-            # # Stack X,Y,Z
-            # points = np.stack([[point.X for sublist in all_points for point in sublist], [point.Y for sublist in all_points for point in sublist], [point.Z for sublist in all_points for point in sublist]], axis=1)
-            # points_key = np.asarray([node_idx for sublist in all_points_key for node_idx in sublist])
-            # points_idx = np.asarray([point_idx for sublist in all_points_idx for point_idx in sublist])
-            # classification = np.asarray([point.Classification for sublist in all_points for point in sublist])
-
         # If training we can just grab points without tracking
-        else:
-            valid_nodes = {}
-            # check each possible z to see if it, or any of its parents, exist
-            for i, z in enumerate(sample.z):
-                start_key = copc.VoxelKey(nearest_depth, x, y, z)
+        valid_nodes = {}
+        valid_parent_nodes = {}
+        # check each possible z to see if it, or any of its parents, exist
+        for i, z in enumerate(sample.z):
+            start_key = copc.VoxelKey(nearest_depth, x, y, z)
 
-                # start by checking if the node itself exists
-                if str(start_key) in hierarchy:
-                    # if the node exists, then get all its children
-                    child_nodes = []
-                    self.get_all_key_children(start_key, max_depth, hierarchy, child_nodes)
-                    for child_node in child_nodes:
-                        valid_nodes[str(child_node.key)] = child_node
+            # start by checking if the node itself exists
+            if str(start_key) in hierarchy:
+                # if the node exists, then get all its children
+                child_nodes = []
+                self.get_all_key_children(start_key, max_depth, hierarchy, child_nodes)
+                for child_node in child_nodes:
+                    valid_nodes[str(child_node.key)] = child_node
                     
-                else:
-                    # if the node doens't exist, get its first parent to exist
-                    while str(start_key) not in hierarchy:
-                        if start_key.d < 0:
-                            raise RuntimeError("This shouldn't happen!")
-                        start_key = start_key.GetParent()
-                # then, get all nodes from depth 0 to the current depth
-                key = start_key
-                while key.IsValid():
-                    valid_nodes[str(key)] = hierarchy[str(key)]
-                    key = key.GetParent()
+            else:
+                # if the node doens't exist, get its first parent to exist
+                while str(start_key) not in hierarchy:
+                    if start_key.d < 0:
+                        raise RuntimeError("This shouldn't happen!")
+                    start_key = start_key.GetParent()
+            # then, get all nodes from depth 0 to the current depth
+            key = start_key
+            while key.IsValid():
+                valid_parent_nodes[str(key)] = hierarchy[str(key)]
+                key = key.GetParent()
 
-            # Process keys that exist
-            copc_points = copc.Points(header)
+        # Process keys that exist
+        copc_points = copc.Points(header)
+        points_key = []
+        points_idx = []
+        points_file = []
 
-            for node in valid_nodes.values():
-                key = node.key
+        # For node and children we can load all points
+        for node in valid_nodes.values():
+            node_points = reader.GetPoints(node)
+            if self.is_inference:
+                for i in range(len(node_points)):
+                    points_key.append((node.key.d,node.key.x,node.key.y,node.key.z))
+                    points_file.append(file_path)
+                    points_idx.append(i)
+            else:
+                copc_points.AddPoints(node_points)
+
+        # For parents node we need to check which points fit within bounds
+        for node in valid_parent_nodes.values():
+            if self.is_inference:
+                node_points = reader.GetPoints(node)
+                for i, point in enumerate(node_points):
+                    if point.Within(sample_bounds):
+                        copc_points.AddPoint(point)
+                        points_key.append((node.key.d,node.key.x,node.key.y,node.key.z))
+                        points_file.append(file_path)
+                        points_idx.append(i)
+            else:
                 copc_points.AddPoints(reader.GetPoints(node).GetWithin(sample_bounds))
 
-            points = np.stack([copc_points.X, copc_points.Y, copc_points.Z], axis=1)
-            classification = np.array(copc_points.Classification).astype(np.int)
-            y = torch.from_numpy(classification)
+        points = np.stack([copc_points.X, copc_points.Y, copc_points.Z], axis=1) # Nx3
+        points_key = np.asarray(points_key)  # N
+        points_idx = np.asarray(points_idx)  # N
+        points_file = np.asarray(points_file)  # N
+
+        classification = np.array(copc_points.Classification).astype(np.int)
+        y = torch.from_numpy(classification)
 
         # we need this check because numpy will error for empty array
         if len(points) >= self.min_num_points:
@@ -235,7 +234,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
                 points = points[mask]
             y = self._remap_labels(y, dataset)
 
-        data = Data(pos=torch.from_numpy(points).type(torch.float), y=y)
+        data = Data(pos=torch.from_numpy(points).type(torch.float), y=y, points_key=points_key, points_idx=points_idx, points_file=points_file)
 
         if len(data.pos) < self.min_num_points:
             if self.random_sample:
@@ -389,16 +388,17 @@ class CopcDataset(BaseDataset):
         else:
 
             self.test_dataset = CopcInternalDataset(
-                dataset_opt.dataroot,
-                samples={},  # TODO
+                root=dataset_opt.dataroot,
+                split="inference",
+                samples=splits["test"],
+                datasets=dataset_opt.datasets,
+                train_classes=dataset_opt.training_classes,
+                is_inference=True,
                 transform=self.test_transform,
                 resolution=dataset_opt.resolution,
                 min_num_points=dataset_opt.min_num_points,
-                is_inference=True,
                 do_augment=False,
-                hUnits=20,
-                vUnits=20,
-                do_shift=dataset_opt.do_shift,
+                do_shift=dataset_opt.do_shift
             )
 
     def get_tracker(self, wandb_log: bool, tensorboard_log: bool):
