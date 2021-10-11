@@ -101,12 +101,14 @@ class Wandb:
                 dset_name_dir = os.path.join(dset_dir, dset_name)
                 if not os.path.exists(dset_name_dir):
                     os.makedirs(dset_name_dir)
-                
-                real_dset_dir = os.path.join(cfg.data.dataroot, dset_name, "copc/splits-v%d.json" % (cfg.data.dataset_version))
+
+                real_dset_dir = os.path.join(
+                    cfg.data.dataroot, dset_name, "copc/splits-v%d.json" % (cfg.data.dataset_version)
+                )
                 shutil.copy(real_dset_dir, dset_name_dir)
-            
+
             shutil.copy(os.path.join(cfg.data.dataroot, "dataset-v%d.json" % cfg.data.dataset_version), dset_name_dir)
-            #wandb.save(dset_file)
+            # wandb.save(dset_file)
 
             with open("change.patch", "w") as f:
                 f.write(gitdiff)
@@ -118,6 +120,6 @@ class Wandb:
             raise RuntimeError("wandb is inactive, please launch first.")
         import wandb
 
-        filename = os.path.basename(file_path)
+        os.path.basename(file_path)
         # shutil.copyfile(file_path, os.path.join(wandb.run.dir, filename))
         wandb.save(file_path)

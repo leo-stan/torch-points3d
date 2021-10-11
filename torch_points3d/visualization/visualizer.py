@@ -97,7 +97,7 @@ class Visualizer(object):
 
     def reset(self, epoch, stage):
         """This function is responsible to restore the visualizer
-            to start a new epoch on a new stage
+        to start a new epoch on a new stage
         """
         self._current_epoch = epoch
         self._seen_batch = 0
@@ -145,9 +145,9 @@ class Visualizer(object):
 
     def save_visuals(self, visuals):
         """This function is responsible to save the data into .ply objects
-            Parameters:
-                visuals (Dict[Data(pos=torch.Tensor, ...)]) -- Contains a dictionnary of tensors
-            Make sure the saved_keys  within the config maps to the Data attributes.
+        Parameters:
+            visuals (Dict[Data(pos=torch.Tensor, ...)]) -- Contains a dictionnary of tensors
+        Make sure the saved_keys  within the config maps to the Data attributes.
         """
         if self._stage in self._indices:
             batch_indices = self._indices[self._stage] // self._batch_size
@@ -169,38 +169,30 @@ class Visualizer(object):
                     filename = "{}_{}.ply".format(self._seen_batch, pos_idx)
                     path_out = os.path.join(dir_path, filename)
 
-                    filename = "{}_{}.las".format(
-                        self._seen_batch, pos_idx
-                    )
+                    filename = "{}_{}.las".format(self._seen_batch, pos_idx)
                     path_out = os.path.join(out_path, filename)
-                    pred_las = laspy.file.File(
-                        path_out, mode="w", header=laspy.header.Header()
-                    )
+                    pred_las = laspy.file.File(path_out, mode="w", header=laspy.header.Header())
                     pred_las.header.scale = [0.01, 0.01, 0.01]
                     pred_las.header.offset = [0, 0, 0]
                     pred_las.x = out_item["x"]
                     pred_las.y = out_item["y"]
                     pred_las.z = out_item["z"]
-                    pred_las.classification = out_item["p"].astype(np.ubyte)+1
+                    pred_las.classification = out_item["p"].astype(np.ubyte) + 1
                     pred_las.close()
 
                     out_path = os.path.join(dir_path, "gt")
                     if not os.path.exists(out_path):
                         os.makedirs(out_path)
 
-                    filename = "{}_{}_gt.las".format(
-                        self._seen_batch, pos_idx
-                    )
+                    filename = "{}_{}_gt.las".format(self._seen_batch, pos_idx)
                     path_out = os.path.join(out_path, filename)
-                    pred_las = laspy.file.File(
-                        path_out, mode="w", header=laspy.header.Header()
-                    )
+                    pred_las = laspy.file.File(path_out, mode="w", header=laspy.header.Header())
                     pred_las.header.scale = [0.01, 0.01, 0.01]
                     pred_las.header.offset = [0, 0, 0]
                     pred_las.x = out_item["x"]
                     pred_las.y = out_item["y"]
                     pred_las.z = out_item["z"]
-                    pred_las.classification = out_item["l"].astype(np.ubyte)+1
+                    pred_las.classification = out_item["l"].astype(np.ubyte) + 1
                     pred_las.close()
 
             self._seen_batch += 1
