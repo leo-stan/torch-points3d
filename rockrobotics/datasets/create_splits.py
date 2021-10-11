@@ -12,9 +12,9 @@ import math
 def m_to_ft(m):
     return m * 3.281
 
-resolution = 0.4 # get a slightly higher res than the one we want, since we have to downsample for tp3d
-target_tile_size = 100
-max_resolution = 5
+resolution = 0.5
+target_tile_size = 150
+max_resolution = 10
 datasets = ["lux", "sasche", "tyrol"]
 path = "/media/nvme/pcdata"
 splits = {'train': 0.9, 'val': 0.05, 'test': 0.05}
@@ -30,6 +30,14 @@ def get_split():
     else:
         return "train"
 
+def cartesian_product(*arrays):
+    la = len(arrays)
+    dtype = np.result_type(*arrays)
+    arr = np.empty([len(a) for a in arrays] + [la], dtype=dtype)
+    for i, a in enumerate(np.ix_(*arrays)):
+        arr[...,i] = a
+    return arr.reshape(-1, la)
+
 def split_dataset(dataset):
 
     dataset_dir = osp.join(path, dataset, "copc")
@@ -40,49 +48,36 @@ def split_dataset(dataset):
             return None
 
         try:
+        #if True:
             reader = copc.FileReader(datafile_path)
             header = reader.GetLasHeader()
-            depth = reader.GetDepthAtResolution(resolution)
-            max_depth = reader.GetDepthAtResolution(max_resolution)
             max_depth = reader.GetDepthAtResolution(max_resolution)
 
             span = header.GetSpan()
-            nearest_depth = math.floor(math.log2(span/target_tile_size))
+            nearest_depth = round(math.log2(span/target_tile_size))
             num_voxels = 2**nearest_depth
             tile_size = span / num_voxels
+            print(tile_size)
+
+            min_z = reader.GetLasHeader().min.z
+            max_z = reader.GetLasHeader().max.z
+            max_z_coord = math.ceil((max_z - min_z) / (span / 2**nearest_depth))
 
             datafile_splits = {"train": {}, "test": {}, "val": {}}
 
-            bounds = header.GetBounds()
+            keys = np.array([[node.key.d, node.key.x, node.key.y, node.key.z] for node in reader.GetAllChildren()])
+            keys_in_range = keys[keys[:,0] == max_depth][:,1:]
+            keys_in_range_min = keys_in_range * 2**(nearest_depth-max_depth)
+            keys_in_range_max = keys_in_range * 2**(nearest_depth-max_depth)+np.sum(2 ** np.arange(nearest_depth-max_depth))
+            keys_in_range_max[:,2] = np.minimum(keys_in_range_max[:,2], max_z_coord)
 
-            min_bounds = np.array([bounds.x_min, bounds.y_min, bounds.z_min])
+            x_range = [np.arange(a, b) for a,b in zip(keys_in_range_min[:,0], keys_in_range_max[:,0])]
+            y_range = [np.arange(a, b) for a,b in zip(keys_in_range_min[:,1], keys_in_range_max[:,1])]
+            z_range = [np.arange(a, b) for a,b in zip(keys_in_range_min[:,2], keys_in_range_max[:,2])]
 
-            min = np.array(min_bounds, copy=True)
+            test_keys = {str((nearest_depth, x, y)):zs.tolist() for xs, ys, zs in zip(x_range, y_range, z_range) for x,y in cartesian_product(xs, ys)}
             
-            xy = {}
-
-            for x in range(num_voxels):
-                min[0] = min_bounds[0] + tile_size * x
-                for y in range(num_voxels):
-                    xy[(nearest_depth, x,y)] = []
-                    min[1] = min_bounds[1] + tile_size * y
-                    for z in range(num_voxels):
-                        min[2] = min_bounds[2] + tile_size * z
-                        max = min + tile_size
-
-                        if min[0] > bounds.x_max or min[1] > bounds.y_max or min[2] > bounds.z_max or max[0] < bounds.x_min or max[1] < bounds.y_min or max[2] < bounds.z_min:
-                            continue
-
-                        key = copc.VoxelKey(nearest_depth, x, y, z)
-
-                        while key.d >= max_depth:
-                            if reader.FindNode(key).IsValid():
-                                xy[(nearest_depth, x,y)].append(z)
-                                #datafile_splits[get_split()].append([nearest_depth, x, y, z])
-                                break
-                            key = key.GetParent()
-            
-            for k,v in xy.items():
+            for k,v in test_keys.items():
                 if len(v) > 0:
                     datafile_splits[get_split()][str(k)] = v
             
