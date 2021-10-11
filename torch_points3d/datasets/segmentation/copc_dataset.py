@@ -101,7 +101,6 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         self.do_shift = do_shift
         self.augment_transform = augment_transform
         self.datasets = datasets
-        self.retry_idx = 0
 
         if split == "train":
             self.weight_classes = torch.Tensor(train_classes_weights)
@@ -128,13 +127,18 @@ class CopcInternalDataset(torch.utils.data.Dataset):
             sample = self.samples[idx]
         if not self.is_inference:
             dataset = self.datasets[sample.dataset]
+            dataset_idx = self.datasets.index(sample.dataset)
             file = dataset["files"][sample.file]
+            file_idx = dataset["files"].index(sample.file)
             hierarchy = file.hierarchy
 
             file_path = os.path.join(self.root,sample.dataset,"copc",sample.file,"octree.copc.laz")
             reader = copc.FileReader(file_path)
             max_depth = file.max_depth
         else:
+
+            dataset_idx = 0
+            file_idx = 0
             hierarchy = self.datasets.hierarchy
             max_depth = self.datasets.max_depth
             reader = copc.FileReader(self.datasets.name)
@@ -143,16 +147,15 @@ class CopcInternalDataset(torch.utils.data.Dataset):
 
         # Extract nearest depth, x, and y from sample
         nearest_depth, x, y = sample.depth, sample.x, sample.y
-        # Fill z as 0, since we don't care about that dimension
+        # make a 2d box out of the voxelkey x,y
         sample_bounds = copc.Box(copc.VoxelKey(nearest_depth, x, y, 0), header)
-        # Make the tile 2D
         sample_bounds.z_min = float_info.min
         sample_bounds.z_max = float_info.max
 
-        # If training we can just grab points without tracking
-        valid_nodes = {}
+        # key:node mappings
+        valid_child_nodes = {}
         valid_parent_nodes = {}
-        # check each possible z to see if it, or any of its parents, exist
+        # check every z to see if it, or any of its parents, have points in it
         for i, z in enumerate(sample.z):
             start_key = copc.VoxelKey(nearest_depth, x, y, z)
 
@@ -162,14 +165,19 @@ class CopcInternalDataset(torch.utils.data.Dataset):
                 child_nodes = []
                 self.get_all_key_children(start_key, max_depth, hierarchy, child_nodes)
                 for child_node in child_nodes:
-                    valid_nodes[str(child_node.key)] = child_node
-                    
+                    valid_child_nodes[str(child_node.key)] = child_node
+
+                # add the node itself
+                valid_child_nodes[str(start_key)] = hierarchy[str(start_key)]
+                start_key = start_key.GetParent()
+
+            # if the node doens't exist, find the first parent that does exist
             else:
-                # if the node doens't exist, get its first parent to exist
                 while str(start_key) not in hierarchy:
                     if start_key.d < 0:
                         raise RuntimeError("This shouldn't happen!")
                     start_key = start_key.GetParent()
+
             # then, get all nodes from depth 0 to the current depth
             key = start_key
             while key.IsValid():
@@ -178,40 +186,35 @@ class CopcInternalDataset(torch.utils.data.Dataset):
 
         # Process keys that exist
         copc_points = copc.Points(header)
+        # this can be converted to points_key_idx by indexing hierarchy
         points_key = []
         points_idx = []
-        points_file = []
 
-        # For node and children we can load all points
-        for node in valid_nodes.values():
+        # Load the node and all its child points
+        for node in valid_child_nodes.values():
             node_points = reader.GetPoints(node)
+
+            # track point for inference
             if self.is_inference:
                 for i in range(len(node_points)):
-                    points_key.append((node.key.d,node.key.x,node.key.y,node.key.z))
-                    points_file.append(file_path)
+                    points_key.append(str(node.key.d, node.key.x, node.key.y, node.key.z))
                     points_idx.append(i)
-            else:
-                copc_points.AddPoints(node_points)
+
+            copc_points.AddPoints(node_points)
 
         # For parents node we need to check which points fit within bounds
         for node in valid_parent_nodes.values():
-            if self.is_inference:
-                node_points = reader.GetPoints(node)
-                for i, point in enumerate(node_points):
-                    if point.Within(sample_bounds):
-                        copc_points.AddPoint(point)
-                        points_key.append((node.key.d,node.key.x,node.key.y,node.key.z))
-                        points_file.append(file_path)
+            node_points = reader.GetPoints(node)
+            for i, point in enumerate(node_points):
+                if point.Within(sample_bounds):
+                    copc_points.AddPoint(point)
+
+                    if self.is_inference:
+                        points_key.append(str(node.key.d, node.key.x, node.key.y, node.key.z))
                         points_idx.append(i)
-            copc_points.AddPoints(reader.GetPoints(node).GetWithin(sample_bounds))
 
-        points = np.stack([copc_points.X, copc_points.Y, copc_points.Z], axis=1) # Nx3
-        points_key = np.asarray(points_key)  # N
-        points_idx = np.asarray(points_idx)  # N
-        points_file = np.asarray(points_file)  # N
-
-        classification = np.array(copc_points.Classification).astype(np.int)
-        y = torch.from_numpy(classification)
+        points = np.stack([copc_points.X, copc_points.Y, copc_points.Z], axis=1)
+        y = np.array(copc_points.Classification).astype(np.int)
 
         # we need this check because numpy will error for empty array
         if len(points) >= self.min_num_points:
@@ -238,7 +241,12 @@ class CopcInternalDataset(torch.utils.data.Dataset):
                 points = points[mask]
             y = self._remap_labels(y, dataset)
 
-        data = Data(pos=torch.from_numpy(points).type(torch.float), y=y, points_key=points_key, points_idx=points_idx, points_file=points_file)
+        data = Data(
+            pos=torch.from_numpy(points).type(torch.float),
+            y=torch.from_numpy(y),
+            points_key=torch.from_numpy(np.asarray(points_key)),
+            points_idx=torch.from_numpy(np.asarray(points_idx)),
+        )
 
         if len(data.pos) < self.min_num_points:
             if self.random_sample:
@@ -246,7 +254,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
                 return self[0]
             else:
                 # there's not really a great way to handle this
-                return self[random.randint(0, self.nb_samples-1)]
+                return self[random.randint(0, self.nb_samples - 1)]
 
         if self.is_inference:
             data = SaveOriginalPosId()(data)
@@ -319,6 +327,7 @@ class CopcDatasetFactory(BaseDataset):
         splits = {"train": {}, "test": {}, "val": {}}
         datasets = OmegaConf.to_container(dataset_opt.datasets, True)
 
+        # parse through each dataset's splits file and merge them
         for dset_name, dataset in datasets.items():
             with open(
                 os.path.join(
@@ -337,6 +346,7 @@ class CopcDatasetFactory(BaseDataset):
                 for file_name, file_items in dset_splits[split].items():
                     dataset["file_list"].add(file_name)
                     for dxy, z_list in file_items.items():
+                        # tuple string to tuple
                         d, x, y = ast.literal_eval(dxy)
                         splits[split][dset_name].append(
                             DatasetSample(file=file_name, dataset=dset_name, depth=d, x=x, y=y, z=z_list)

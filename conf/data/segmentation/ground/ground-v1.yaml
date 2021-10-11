@@ -4,6 +4,8 @@ data:
   dataroot: /media/nvme/pcdata
   is_inference: False
   resolution: 0.5
+  max_resolution: 10
+  target_tile_size: 150
   dataset_version: 1
   min_num_points: 150 # minimum number of points for a tile to be considered a valid sample
   datasets:
@@ -30,6 +32,12 @@ data:
 
   training_classes: [2]
   training_classes_weights: [1, 1] #[otherClass, train_class[0], train_class[1], ...]
+
+  # this is a map from the DL prediction output into ASPRS las codes
+  # note that the to: class is (dl_output + 1), i.e. -1 (ignore) class becomes 0,
+  # 0 (other_class) becomes 1, 1 (training_classes[0]) becomes 2, etc.
+  # reverse_class_map: [[0,0], [1,1], [2,2]]
+  reverse_class_map: [] # in this case we don't have to change anything!
 
   train_transforms:
     - transform: XYZFeature

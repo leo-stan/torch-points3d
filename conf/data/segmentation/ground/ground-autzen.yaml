@@ -3,6 +3,8 @@ data:
   class: copc_dataset.CopcDataset
   dataroot: data
   resolution: 0.5
+  max_resolution: 10
+  target_tile_size: 150
   dataset_version: 1
   min_num_points: 200 # minimum number of points for a tile to be considered a valid sample
   datasets:
