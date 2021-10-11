@@ -24,6 +24,7 @@ import laspy
 import copclib as copc
 from torch_points3d.datasets.segmentation.copc_dataset import CopcDatasetFactoryInference
 
+import argparse
 
 def update_node_predictions(compressed_points, node, changed_idx, prediction, file_header):
     uncompressed_copc_points = copc.DecompressBytes(compressed_points, file_header, node.point_count)
@@ -236,4 +237,17 @@ if __name__ == "__main__":
     #                wandb_dir='/media/machinelearning/machine-learning/torch-points3d/wandb', model_name="ResUNet32",
     #                metric="miou", cuda=False, num_workers=8, batch_size=8)
 
-    predict_folder_local('/home/leo/kios/rock_robotic/torch-points3d/data/autzen_inference/autzen-classified.copc.laz', '/home/leo/kios/rock_robotic/torch-points3d/data/autzen_inference/autzen-reclassified.copc.laz', '/home/leo/kios/rock_robotic/torch-points3d/outputs', model_name="ResUNet32", metric="miou", cuda=False, num_workers=2, batch_size=1, debug=False, confidence_threshold=0.)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('in_file_path', type=str, help='Absolute path to file to process')
+    parser.add_argument('out_file_path', type=str, help='Absolute path to file to save')
+    parser.add_argument('checkpoint_dir', type=str, help='Absolute path to checkpoint directory')
+    parser.add_argument('model_name', type=str, help='Model Name')
+    parser.add_argument('metric', type=str, help='miou')
+    parser.add_argument('cuda', type=bool, default=False, help='cuda use flag')
+    parser.add_argument('num_workers', type=int, default=1, help='Number of CPU workers')
+    parser.add_argument('batch_size', type=int, default=1, help='Batch Size')
+    parser.add_argument('confidence_threshold', type=float, default=0.5, help='Confidence Threshold')
+
+    args = parser.parse_args()
+
+    predict_folder_local(args.in_file_path, args.out_file_path, args.checkpoint_dir, model_name=args.model_name, metric=args.metric, cuda=args.cuda, num_workers=args.num_workers, batch_size=args.batch_size, debug=False, confidence_threshold=args.confidence_threhsold)
