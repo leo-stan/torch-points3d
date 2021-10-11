@@ -10,8 +10,8 @@ pip install "torch-geometric<2"
 pip install torch-points-kernels
 
 # minkowski
-conda install openblas-devel -c anaconda
-pip install -U git+https://github.com/NVIDIA/MinkowskiEngine -v --no-deps --install-option="--blas_include_dirs=${CONDA_PREFIX}/include" --install-option="--blas=openblas"
+sudo apt-get install libsparsehash-dev build-essential python3-dev libopenblas-dev -y
+pip install --upgrade git+https://github.com/mit-han-lab/torchsparse.git@v1.4.0
 
 # other requires
 pip install wandb^=0.8.18 hydra-core~=1.0.0 torchnet^=0.0.4 tqdm tensorboard plyfile gdown h5py
