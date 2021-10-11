@@ -198,8 +198,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
                         points_key.append((node.key.d,node.key.x,node.key.y,node.key.z))
                         points_file.append(file_path)
                         points_idx.append(i)
-            else:
-                copc_points.AddPoints(reader.GetPoints(node).GetWithin(sample_bounds))
+            copc_points.AddPoints(reader.GetPoints(node).GetWithin(sample_bounds))
 
         points = np.stack([copc_points.X, copc_points.Y, copc_points.Z], axis=1) # Nx3
         points_key = np.asarray(points_key)  # N

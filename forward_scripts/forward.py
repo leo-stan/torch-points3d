@@ -27,6 +27,7 @@ from torch_points3d.core.data_transform import SaveOriginalPosId
 
 # Utils import
 from torch_points3d.utils.colors import COLORS
+from utils.dataset_tiles import get_keys
 
 log = logging.getLogger(__name__)
 import laspy
@@ -104,7 +105,7 @@ def save_file_debug(filename, output_path, predicted, origindid, debug, confiden
     las_out.write(os.path.join(out_dir, os.path.basename(filename)))
 
 
-def run(model: BaseModel, dataset, device, output_path, debug, confidence_threshold):
+def run(model: BaseModel, dataset, device, writer, debug, confidence_threshold):
     loaders = dataset.test_dataloaders
     for loader in loaders:
         loader.dataset.name
@@ -126,7 +127,7 @@ def run(model: BaseModel, dataset, device, output_path, debug, confidence_thresh
                             origindid = BaseDataset.get_sample(data, SaveOriginalPosId.KEY, sample,
                                                                model.conv_type).cpu().numpy()
                             filename = dataset.test_dataset[0].files[data.file[sample][0]]
-                            save_args.append({'filename': filename, 'output_path': output_path, 'predicted': predicted,
+                            save_args.append({'filename': filename, 'writer': writer, 'predicted': predicted,
                                               'origindid': origindid, 'debug': debug,
                                               'confidence_threshold': confidence_threshold})
 
@@ -181,7 +182,7 @@ def predict_folder(in_folder, out_folder, wandb_run, wandb_dir, model_name="ResU
     run(model, dataset, device, out_folder, debug, confidence_threshold)
 
 
-def predict_folder_local(in_folder, out_folder, checkpoint_dir, model_name="ResUNet32", metric="miou", cuda=False,
+def predict_folder_local(in_file_path, out_file_path, checkpoint_dir, model_name="ResUNet32", metric="miou", cuda=False,
                          num_workers=2, batch_size=1, debug=False, confidence_threshold=0.):
     device = torch.device("cuda" if (torch.cuda.is_available() and cuda) else "cpu")
     print("DEVICE : {}".format(device))
@@ -190,15 +191,27 @@ def predict_folder_local(in_folder, out_folder, checkpoint_dir, model_name="ResU
 
     print("Loading checkpoint...")
     checkpoint = ModelCheckpoint(checkpoint_dir, model_name, metric, strict=True)
-
-    print("Setting dataset directory to: %s" % in_folder)
-    setattr(checkpoint.data_config, "dataroot", in_folder)
-    setattr(checkpoint.data_config, "is_test", True)
+    setattr(checkpoint.data_config, "is_inference", True)
 
     model = checkpoint.create_model(checkpoint.dataset_properties, weight_name=metric)
     # log.info(model)
     print("Model size = %i", sum(param.numel() for param in model.parameters() if param.requires_grad))
 
+    # Load input file
+    reader = copc.FileReader(in_file_path)
+    setattr(checkpoint.data_config, "inference_file", in_file_path)
+
+    # Create the COPC writer
+    cfg = copc.LasConfig(reader.GetLasHeader(), reader.GetExtraByteVlr(), )
+    writer = copc.FileWriter(out_file_path,cfg,reader.GetCopcHeader().span,reader.GetWkt())
+
+    # Load the tiles from copc file
+    keys = get_keys(in_file_path)
+
+    # Add tiles to config file
+    setattr(checkpoint.data_config, "keys", keys)
+
+    # instanciate CopcInternalDataset
     dataset = instantiate_dataset(checkpoint.data_config)
     dataset.create_dataloaders(
         model, batch_size, False, num_workers, False,
@@ -208,14 +221,14 @@ def predict_folder_local(in_folder, out_folder, checkpoint_dir, model_name="ResU
     model.eval()
     model = model.to(device)
 
-    if not os.path.exists(out_folder):
-        os.makedirs(out_folder)
-
-    run(model, dataset, device, out_folder, debug, confidence_threshold)
+    # Predict
+    run(model, dataset, device, writer, debug, confidence_threshold)
 
 
 if __name__ == "__main__":
-    predict_folder('/media/machinelearning/machine-learning/test-data/split/canyon',
-                   '/media/machinelearning/machine-learning/test-data/test-out', 'rock-robotic/ground-v1/gdq4kqj0',
-                   wandb_dir='/media/machinelearning/machine-learning/torch-points3d/wandb', model_name="ResUNet32",
-                   metric="miou", cuda=False, num_workers=8, batch_size=8)
+    # predict_folder('/media/machinelearning/machine-learning/test-data/split/canyon',
+    #                '/media/machinelearning/machine-learning/test-data/test-out', 'rock-robotic/ground-v1/gdq4kqj0',
+    #                wandb_dir='/media/machinelearning/machine-learning/torch-points3d/wandb', model_name="ResUNet32",
+    #                metric="miou", cuda=False, num_workers=8, batch_size=8)
+
+    predict_folder_local('/home/leo/kios/rock_robotic/torch-points3d/data/autzen_inference/autzen-classified.copc.laz', '/home/leo/kios/rock_robotic/torch-points3d/data/autzen_inference/autzen-reclassified.copc.laz', '/home/leo/kios/rock_robotic/torch-points3d/outputs', model_name="ResUNet32", metric="miou", cuda=False, num_workers=2, batch_size=1, debug=False, confidence_threshold=0.)
