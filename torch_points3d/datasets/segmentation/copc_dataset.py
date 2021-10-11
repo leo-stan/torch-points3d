@@ -61,10 +61,6 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         self.root = root
         self.samples = samples
 
-        # # TODO: Compute nb samples per dataset and total number of samples
-        # [dataset,split,bound]
-        # for dataset in samples.keys():
-
         self.random_sample = not is_inference and split == "train"
 
         # Compute total number of samples
@@ -305,108 +301,92 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         return len(self.train_classes) + 1
 
 
-class CopcDataset(BaseDataset):
+def get_hierarchy(file, file_path, resolution):
+    reader = copc.FileReader(file_path)
+    max_depth = reader.GetDepthAtResolution(resolution)
+    hierarchy = {str(node.key): node for node in reader.GetAllChildren() if node.key.d <= max_depth}
+    return File(file, hierarchy, max_depth)
+
+
+class CopcDatasetFactory(BaseDataset):
     def __init__(self, dataset_opt):
         super().__init__(dataset_opt)
 
-        if not dataset_opt.is_inference:
-            splits = {"train": {}, "test": {}, "val": {}}
-            datasets = OmegaConf.to_container(dataset_opt.datasets, True)
+        splits = {"train": {}, "test": {}, "val": {}}
+        datasets = OmegaConf.to_container(dataset_opt.datasets, True)
 
-            # parse through each dataset's splits file and merge them
-            for dset_name, dataset in datasets.items():
-                with open(
-                    os.path.join(
-                        dataset_opt.dataroot, dset_name, "copc/splits-v%d.json" % (dataset_opt.dataset_version)
-                    )
-                ) as fp:
-                    dset_splits = json.load(fp)
+        # parse through each dataset's splits file and merge them
+        for dset_name, dataset in datasets.items():
+            with open(
+                os.path.join(
+                    dataset_opt.dataroot, dset_name, "copc/splits-v%d.json" % (dataset_opt.dataset_version)
+                )
+            ) as fp:
+                dset_splits = json.load(fp)
 
-                dataset["file_list"] = set()
-                for split in splits.keys():
-                    splits[split][dset_name] = []
+            dataset["file_list"] = set()
+            for split in splits.keys():
+                splits[split][dset_name] = []
 
-                    if split == "train" and dataset["num_training_samples"] == 0:
-                        continue
+                if split == "train" and dataset["num_training_samples"] == 0:
+                    continue
 
-                    for file_name, file_items in dset_splits[split].items():
-                        dataset["file_list"].add(file_name)
-                        for dxy, z_list in file_items.items():
-                            # tuple string to tuple
-                            d, x, y = ast.literal_eval(dxy)
-                            splits[split][dset_name].append(
-                                DatasetSample(file=file_name, dataset=dset_name, depth=d, x=x, y=y, z=z_list)
-                            )
+                for file_name, file_items in dset_splits[split].items():
+                    dataset["file_list"].add(file_name)
+                    for dxy, z_list in file_items.items():
+                        # tuple string to tuple
+                        d, x, y = ast.literal_eval(dxy)
+                        splits[split][dset_name].append(
+                            DatasetSample(file=file_name, dataset=dset_name, depth=d, x=x, y=y, z=z_list)
+                        )
 
-                    if split == "train" and dataset["num_training_samples"] < 0:
-                        dataset["num_training_samples"] = len(splits[split][dset_name])
+                if split == "train" and dataset["num_training_samples"] < 0:
+                    dataset["num_training_samples"] = len(splits[split][dset_name])
 
-                def get_hierarchy(file):
-                    reader = copc.FileReader(
-                        os.path.join(dataset_opt.dataroot, dset_name, "copc", file, "octree.copc.laz")
-                    )
-                    max_depth = reader.GetDepthAtResolution(dataset_opt.resolution)
-                    hierarchy = {str(node.key): node for node in reader.GetAllChildren() if node.key.d <= max_depth}
-                    return File(file, hierarchy, max_depth)
+            out_files = Parallel(n_jobs=1)(delayed(get_hierarchy)(file, os.path.join(dataset_opt.dataroot, dset_name, "copc", file, "octree.copc.laz"), dataset_opt.resolution) for file in tqdm(dataset["file_list"]))
+            dataset["files"] = {file.name: file for file in out_files}
 
-                out_files = Parallel(n_jobs=1)(delayed(get_hierarchy)(file) for file in tqdm(dataset["file_list"]))
-                dataset["files"] = {file.name: file for file in out_files}
+        self.train_dataset = CopcInternalDataset(
+            root=dataset_opt.dataroot,
+            split="train",
+            samples=splits["train"],
+            transform=self.train_transform,
+            train_classes=dataset_opt.training_classes,
+            resolution=dataset_opt.resolution,
+            min_num_points=dataset_opt.min_num_points,
+            datasets=datasets,
+            do_augment=dataset_opt.do_augment,
+            do_shift=dataset_opt.do_shift,
+            # augment_transform=instantiate_transforms(dataset_opt.augment),
+            train_classes_weights=dataset_opt.training_classes_weights,
+        )
 
-            self.train_dataset = CopcInternalDataset(
-                root=dataset_opt.dataroot,
-                split="train",
-                samples=splits["train"],
-                transform=self.train_transform,
-                train_classes=dataset_opt.training_classes,
-                resolution=dataset_opt.resolution,
-                min_num_points=dataset_opt.min_num_points,
-                datasets=datasets,
-                do_augment=dataset_opt.do_augment,
-                do_shift=dataset_opt.do_shift,
-                # augment_transform=instantiate_transforms(dataset_opt.augment),
-                train_classes_weights=dataset_opt.training_classes_weights,
-            )
+        self.val_dataset = CopcInternalDataset(
+            root=dataset_opt.dataroot,
+            split="val",
+            samples=splits["val"],
+            datasets=datasets,
+            train_classes=dataset_opt.training_classes,
+            transform=self.val_transform,
+            resolution=dataset_opt.resolution,
+            min_num_points=dataset_opt.min_num_points,
+            do_augment=False,
+            do_shift=dataset_opt.do_shift,
+        )
 
-            self.val_dataset = CopcInternalDataset(
-                root=dataset_opt.dataroot,
-                split="val",
-                samples=splits["val"],
-                datasets=datasets,
-                train_classes=dataset_opt.training_classes,
-                transform=self.val_transform,
-                resolution=dataset_opt.resolution,
-                min_num_points=dataset_opt.min_num_points,
-                do_augment=False,
-                do_shift=dataset_opt.do_shift,
-            )
+        self.test_dataset = CopcInternalDataset(
+            root=dataset_opt.dataroot,
+            split="test",
+            samples=splits["test"],
+            datasets=datasets,
+            train_classes=dataset_opt.training_classes,
+            transform=self.test_transform,
+            resolution=dataset_opt.resolution,
+            min_num_points=dataset_opt.min_num_points,
+            do_augment=False,
+            do_shift=dataset_opt.do_shift,
+        )
 
-            self.test_dataset = CopcInternalDataset(
-                root=dataset_opt.dataroot,
-                split="test",
-                samples=splits["test"],
-                datasets=datasets,
-                train_classes=dataset_opt.training_classes,
-                transform=self.test_transform,
-                resolution=dataset_opt.resolution,
-                min_num_points=dataset_opt.min_num_points,
-                do_augment=False,
-                do_shift=dataset_opt.do_shift,
-            )
-        else:
-
-            self.test_dataset = CopcInternalDataset(
-                root=dataset_opt.dataroot,
-                split="inference",
-                samples=splits["test"],
-                datasets=dataset_opt.datasets,
-                train_classes=dataset_opt.training_classes,
-                is_inference=True,
-                transform=self.test_transform,
-                resolution=dataset_opt.resolution,
-                min_num_points=dataset_opt.min_num_points,
-                do_augment=False,
-                do_shift=dataset_opt.do_shift,
-            )
 
     def get_tracker(self, wandb_log: bool, tensorboard_log: bool):
         """Factory method for the tracker
@@ -421,4 +401,32 @@ class CopcDataset(BaseDataset):
 
         return SegmentationTracker(
             self, wandb_log=wandb_log, use_tensorboard=tensorboard_log, ignore_label=IGNORE_LABEL
+        )
+
+
+class CopcDatasetFactoryInference(BaseDataset):
+    def __init__(self, dataset_opt, keys):
+        super().__init__(dataset_opt)
+
+        dataset = get_hierarchy(dataset_opt.inference_file, file_path=dataset_opt.inference_file,
+                                resolution=dataset_opt.resolution)
+
+        splits = []
+
+        for dxy, z_list in keys.items():
+            d, x, y = ast.literal_eval(dxy)
+            splits.append(DatasetSample(file="", dataset="", depth=d, x=x, y=y, z=z_list))
+
+        self.test_dataset = CopcInternalDataset(
+            root=dataset_opt.dataroot,
+            split="inference",
+            samples=splits,
+            datasets=dataset,
+            train_classes=dataset_opt.training_classes,
+            is_inference=True,
+            transform=self.test_transform,
+            resolution=dataset_opt.resolution,
+            min_num_points=dataset_opt.min_num_points,
+            do_augment=False,
+            do_shift=dataset_opt.do_shift
         )

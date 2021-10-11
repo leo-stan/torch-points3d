@@ -2,7 +2,6 @@ data:
   task: segmentation
   class: copc_dataset.CopcDataset
   dataroot: /media/nvme/pcdata
-  is_inference: False
   resolution: 0.5
   max_resolution: 10
   target_tile_size: 150
