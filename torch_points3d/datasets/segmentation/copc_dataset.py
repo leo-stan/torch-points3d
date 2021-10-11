@@ -182,10 +182,6 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         copc_points = copc.Points(header)
         # this can be converted to points_key_idx by indexing hierarchy
         points_key = []
-        # in the future, this could be reduced to one array
-        # if we flatten the list of datasets and files
-        points_file_idx = []
-        points_dataset_idx = []
         points_idx = []
 
         # Load the node and all its child points
@@ -195,9 +191,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
             # track point for inference
             if self.is_inference:
                 for i in range(len(node_points)):
-                    points_key.append([node.key.d, node.key.x, node.key.y, node.key.z])
-                    points_file_idx.append(file_idx)
-                    points_dataset_idx.append(dataset_idx)
+                    points_key.append(str(node.key.d, node.key.x, node.key.y, node.key.z))
                     points_idx.append(i)
 
             copc_points.AddPoints(node_points)
@@ -210,9 +204,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
                     copc_points.AddPoint(point)
 
                     if self.is_inference:
-                        points_key.append([node.key.d, node.key.x, node.key.y, node.key.z])
-                        points_file_idx.append(file_idx)
-                        points_dataset_idx.append(dataset_idx)
+                        points_key.append(str(node.key.d, node.key.x, node.key.y, node.key.z))
                         points_idx.append(i)
 
         points = np.stack([copc_points.X, copc_points.Y, copc_points.Z], axis=1)
@@ -248,8 +240,6 @@ class CopcInternalDataset(torch.utils.data.Dataset):
             y=torch.from_numpy(y),
             points_key=torch.from_numpy(np.asarray(points_key)),
             points_idx=torch.from_numpy(np.asarray(points_idx)),
-            points_file_idx=torch.from_numpy(np.asarray(points_file_idx)),
-            points_dataset_idx=torch.from_numpy(np.asarray(points_dataset_idx)),
         )
 
         if len(data.pos) < self.min_num_points:
