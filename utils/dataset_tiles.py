@@ -79,9 +79,9 @@ def split_file(datafile_path, datafile):
 def split_dataset(dataset):
     dataset_dir = osp.join(path, dataset, "copc")
     
-    data_files = [(osp.join(dataset_dir, datafile, "octree.copc.laz"), datafile) for datafile in tqdm(os.listdir(dataset_dir))]
+    data_files = [(osp.join(dataset_dir, datafile, "octree.copc.laz"), datafile) for datafile in os.listdir(dataset_dir)]
     data_files = [tuple for tuple in data_files if osp.exists(tuple[0])]
-    splits_list = Parallel(n_jobs=-1)(delayed(split_file)(datafile_path, datafile) for datafile_path, datafile in data_files)
+    splits_list = Parallel(n_jobs=-1)(delayed(split_file)(datafile_path, datafile) for datafile_path, datafile in tqdm(data_files))
     splits_list = [split for split in splits_list if split is not None]
 
     all_splits = {"train": {}, "test": {}, "val": {}}
