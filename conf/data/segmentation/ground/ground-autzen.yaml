@@ -21,6 +21,8 @@ data:
       class_map_from_to: [[9,2]]
   training_classes: [2]
   training_classes_weights: [1, 1] #[otherClass, train_class[0], train_class[1], ...]
+  
+  reverse_class_map: [] # in this case we don't have to change anything!
 
   train_transforms:
     - transform: XYZFeature
