@@ -1,3 +1,5 @@
+notebooks/ignore/
+*.laz
 /data/
 *.pyc
 __pycache__

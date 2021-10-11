@@ -47,6 +47,5 @@ class APIModel(BaseModel):
         self.data_visual.y = self.labels
         self.data_visual.pred = torch.max(self.output, -1)[1]
 
-
     def backward(self):
         self.loss_seg.backward()
