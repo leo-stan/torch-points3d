@@ -128,9 +128,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
 
         # shortcuts
         dataset = self.datasets[sample.dataset]
-        dataset_idx = self.datasets.index(sample.dataset)
         file = dataset["files"][sample.file]
-        file_idx = dataset["files"].index(sample.file)
         hierarchy = file.hierarchy
 
         # create reader
@@ -233,11 +231,11 @@ class CopcInternalDataset(torch.utils.data.Dataset):
                 mask = y != filter
                 y = y[mask]
                 points = points[mask]
-            y = self._remap_labels(y, dataset)
+            y = self._remap_labels(torch.from_numpy(y), dataset)
 
         data = Data(
             pos=torch.from_numpy(points).type(torch.float),
-            y=torch.from_numpy(y),
+            y=y,
             points_key=torch.from_numpy(np.asarray(points_key)),
             points_idx=torch.from_numpy(np.asarray(points_idx)),
         )

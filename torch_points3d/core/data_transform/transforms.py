@@ -17,7 +17,7 @@ from torch_points_kernels.points_cpu import ball_query
 import numba
 
 from torch_points3d.datasets.multiscale_data import MultiScaleData
-from torch_points3d.datasets.registration.pair import Pair
+#from torch_points3d.datasets.registration.pair import Pair
 from torch_points3d.utils.transform_utils import SamplingStrategy
 from torch_points3d.utils.config import is_list
 from torch_points3d.utils import is_iterable
