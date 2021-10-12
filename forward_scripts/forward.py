@@ -104,7 +104,7 @@ def do_inference(model, dataset, device, confidence_threshold, reverse_class_map
 
 
 def run(
-    model: BaseModel, dataset, device, in_path, out_path, reverse_class_map, confidence_threshold, override_all=True
+    model: BaseModel, dataset, device, in_path, out_path, reverse_class_map, confidence_threshold, override_all=True, debug=False
 ):
     # Load input file
     reader = copc.FileReader(in_path)
@@ -142,6 +142,8 @@ def run(
             futures = []
             # for each node in the key_prediction_map, launch a future that updates its classification
             for key_str, (changed_idx, prediction) in key_prediction_map.items():
+                if debug and key.d > reader.GetDepthAtResolution(dataset.dataset_opt.resolution):
+                    continue
                 # tuple string to tuple
                 key = ast.literal_eval(key_str)
                 key = copc.VoxelKey(*list(key))
@@ -176,6 +178,7 @@ def predict_folder(
     vUnits=1.0,
     confidence_threshold=0.0,
     override_all=True,
+    debug=False,
 ):
     device = torch.device("cuda" if (torch.cuda.is_available() and cuda) else "cpu")
     print("DEVICE : {}".format(device))
@@ -229,6 +232,7 @@ def predict_folder(
         checkpoint.data_config.reverse_class_map,
         confidence_threshold,
         override_all,
+        debug
     )
 
 
@@ -268,6 +272,7 @@ if __name__ == "__main__":
     parser.add_argument("--v_units", type=float, default=1.0, help="Vertical Units")
     parser.add_argument("--confidence_threshold", type=float, default=0.8, help="Confidence Threshold")
     parser.add_argument("--override_all", type=bool, default=True, help="Override All")
+    parser.add_argument("--debug", action="store_true", help="debug flag")
 
     args = parser.parse_args()
 
@@ -285,4 +290,5 @@ if __name__ == "__main__":
         args.v_units,
         args.confidence_threshold,
         args.override_all,
+        args.debug,
     )
