@@ -56,9 +56,9 @@ def get_keys(datafile_path, max_resolution, target_tile_size):
     )
     keys_in_range_max[:, 2] = np.minimum(keys_in_range_max[:, 2], max_z_coord)
 
-    x_range = [np.arange(a, b) for a, b in zip(keys_in_range_min[:, 0], keys_in_range_max[:, 0])]
-    y_range = [np.arange(a, b) for a, b in zip(keys_in_range_min[:, 1], keys_in_range_max[:, 1])]
-    z_range = [np.arange(a, b) for a, b in zip(keys_in_range_min[:, 2], keys_in_range_max[:, 2])]
+    x_range = [np.arange(a, b + 1) for a, b in zip(keys_in_range_min[:, 0], keys_in_range_max[:, 0])]
+    y_range = [np.arange(a, b + 1) for a, b in zip(keys_in_range_min[:, 1], keys_in_range_max[:, 1])]
+    z_range = [np.arange(a, b + 1) for a, b in zip(keys_in_range_min[:, 2], keys_in_range_max[:, 2])]
 
     test_keys = {
         str((nearest_depth, x, y)): zs.tolist()

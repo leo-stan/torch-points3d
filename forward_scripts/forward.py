@@ -44,6 +44,13 @@ def update_node_predictions(compressed_points, node, changed_idx, prediction, fi
     classifications[changed_idx] = prediction
     copc_points.Classification = classifications.astype(int)
 
+    # for point in copc_points:
+    #     point.Red = node.key.x
+    #     point.Green = node.key.y
+    #     point.Blue = node.key.z
+    #     point.Intensity = node.key.d
+    #     point.PointSourceID = node.key.x + node.key.y
+
     compressed_points = copc.CompressBytes(copc_points.Pack(), file_header)
 
     return compressed_points, node
@@ -97,9 +104,6 @@ def do_inference(model, dataset, device, confidence_threshold, reverse_class_map
 
                             key_prediction_map[key_str][0].append(idx)
                             key_prediction_map[key_str][1].append(label)
-                        # changed_idx = points_idx_node
-                        # key_dict = {str(list(key)): [] for key in points_key}
-                        # key_prediction_map[str(tuple(points_key))] = (changed_idx, new_labels)
 
 
 def run(
@@ -136,30 +140,26 @@ def run(
     # we use the method from
     # https://github.com/RockRobotic/rockconvert/blob/f03b1a73964bd2049a26d2e83dce7c5a4e78b5b6/process/copc/copcReproject.py#L107
 
-    # chunk the threading since it opens too many files? not sure why
-    NUM_PROCESSES = 100
     with tqdm(total=len(key_prediction_map)) as progress:
-        for process_key_predictions in chunks(key_prediction_map, NUM_PROCESSES):
-            with concurrent.futures.ProcessPoolExecutor(max_workers=8) as executor:
-                futures = []
-                # for each node in the key_prediction_map, launch a future that updates its classification
-                for key_str, (changed_idx, prediction) in process_key_predictions.items():
-                    # tuple string to tuple
-                    key = ast.literal_eval(key_str)
-                    key = copc.VoxelKey(*list(key))
-                    node = reader.FindNode(key)
-                    compressed_points = reader.GetPointDataCompressed(key)
-                    future = executor.submit(
-                        update_node_predictions, compressed_points, node, changed_idx, prediction, writer.GetLasHeader()
-                    )
-                    future.add_done_callback(lambda p: progress.update())
-                    futures.append(future)
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            futures = []
+            # for each node in the key_prediction_map, launch a future that updates its classification
+            for key_str, (changed_idx, prediction) in key_prediction_map.items():
+                # tuple string to tuple
+                key = ast.literal_eval(key_str)
+                key = copc.VoxelKey(*list(key))
+                node = reader.FindNode(key)
+                compressed_points = reader.GetPointDataCompressed(key)
+                future = executor.submit(
+                    update_node_predictions, compressed_points, node, changed_idx, prediction, writer.GetLasHeader()
+                )
+                future.add_done_callback(lambda p: progress.update())
+                futures.append(future)
 
-                # print(len(futures))
-                # as each future finishes, write the updated node points out to the file
-                for fut in concurrent.futures.as_completed(futures):
-                    compressed_points, node = fut.result()
-                    writer.AddNodeCompressed(writer.GetRootPage(), node.key, compressed_points, node.point_count)
+            # as each future finishes, write the updated node points out to the file
+            for fut in concurrent.futures.as_completed(futures):
+                compressed_points, node = fut.result()
+                writer.AddNodeCompressed(writer.GetRootPage(), node.key, compressed_points, node.point_count)
 
     writer.Close()
     print("DONE RUNNING INFERENCE!")
