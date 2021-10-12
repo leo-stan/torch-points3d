@@ -1,12 +1,16 @@
 import torch
 import logging
-from omegaconf import OmegaConf, open_dict, DictConfig
+from omegaconf import OmegaConf, DictConfig
 import os
 import numpy as np
 import wandb
 import concurrent.futures
 from tqdm import tqdm
 import ast
+import argparse
+from itertools import islice
+
+import copclib as copc
 
 # Import BaseModel / BaseDataset for type checking
 from torch_points3d.models.base_model import BaseModel
@@ -15,19 +19,13 @@ from torch_points3d.datasets.base_dataset import BaseDataset
 # Import from metrics
 from torch_points3d.metrics.colored_tqdm import Coloredtqdm as Ctq
 from torch_points3d.metrics.model_checkpoint import ModelCheckpoint
-from torch_points3d.core.data_transform import SaveOriginalPosId
 
 # Utils import
 from utils.dataset_tiles import get_keys
 
-log = logging.getLogger(__name__)
-import laspy
-import copclib as copc
 from torch_points3d.datasets.segmentation.copc_dataset import CopcDatasetFactoryInference
 
-import argparse
-
-from itertools import islice
+log = logging.getLogger(__name__)
 
 
 def chunks(data, SIZE=10000):
@@ -63,7 +61,6 @@ def get_sample_attribute(data, key, sample_idx, conv_type):
 def do_inference(model, dataset, device, confidence_threshold, reverse_class_map, key_prediction_map):
     loaders = dataset.test_dataloaders
     for loader in loaders:
-        loader.dataset.name
         with Ctq(loader) as tq_test_loader:
             # run forward on each batch
             for data in tq_test_loader:
@@ -166,78 +163,29 @@ def run(
 
 
 def predict_folder(
-    in_folder,
-    out_folder,
-    wandb_run,
-    wandb_dir,
-    model_name="ResUNet32",
-    metric="miou",
-    cuda=False,
-    num_workers=2,
-    batch_size=1,
-    hUnits=1.0,
-    vUnits=1.0,
-    debug=False,
-    confidence_threshold=0.0,
-):
-    device = torch.device("cuda" if (torch.cuda.is_available() and cuda) else "cpu")
-    print("DEVICE : {}".format(device))
-
-    torch.backends.cudnn.enabled = True
-
-    print("Download run weights...")
-    wandb_dir = os.path.join(wandb_dir, wandb_run)
-    wandb.restore(model_name + ".pt", run_path=wandb_run, root=wandb_dir)
-
-    print("Loading checkpoint...")
-    checkpoint = ModelCheckpoint(wandb_dir, model_name, metric, strict=True)
-
-    print("Setting dataset directory to: %s" % in_folder)
-    setattr(checkpoint.data_config, "dataroot", in_folder)
-    setattr(checkpoint.data_config, "is_test", True)
-
-    model = checkpoint.create_model(checkpoint.dataset_properties, weight_name=metric)
-    # log.info(model)
-    print("Model size = %i", sum(param.numel() for param in model.parameters() if param.requires_grad))
-
-    dataset = instantiate_dataset(checkpoint.data_config)
-    dataset.create_dataloaders(
-        model,
-        batch_size,
-        False,
-        num_workers,
-        False,
-    )
-    print(dataset)
-    print("Scaling horizontal by %f and vertical by %f" % (hUnits, vUnits))
-    dataset.test_dataset[0].hunits = hUnits
-    dataset.test_dataset[0].vunits = vUnits
-
-    model.eval()
-    model = model.to(device)
-
-    if not os.path.exists(out_folder):
-        os.makedirs(out_folder)
-
-    run(model, dataset, device, out_folder, debug, confidence_threshold)
-
-
-def predict_folder_local(
     in_file_path,
     out_file_path,
     checkpoint_dir,
     model_name="ResUNet32",
+    wandb_run="",
     metric="miou",
-    cuda=False,
+    cuda=True,
     num_workers=2,
     batch_size=1,
-    debug=False,
+    hUnits=1.0,
+    vUnits=1.0,
     confidence_threshold=0.0,
+    override_all=True,
 ):
     device = torch.device("cuda" if (torch.cuda.is_available() and cuda) else "cpu")
     print("DEVICE : {}".format(device))
 
     torch.backends.cudnn.enabled = True
+
+    if wandb_run:
+        print("Downloading wandb run weights...")
+        checkpoint_dir = os.path.join(checkpoint_dir, wandb_run)
+        wandb.restore(model_name + ".pt", run_path=wandb_run, root=checkpoint_dir)
 
     print("Loading checkpoint...")
     checkpoint = ModelCheckpoint(checkpoint_dir, model_name, metric, strict=True)
@@ -245,18 +193,15 @@ def predict_folder_local(
     data_config = OmegaConf.to_container(checkpoint.data_config, resolve=True)
     data_config["is_inference"] = True
     model = checkpoint.create_model(DictConfig(checkpoint.dataset_properties), weight_name=metric)
-    # log.info(model)
+
     print("Model size = %i", sum(param.numel() for param in model.parameters() if param.requires_grad))
 
     data_config["inference_file"] = in_file_path
-    data_config["max_resolution"] = 10
-    data_config["target_tile_size"] = 150
 
     # Load the tiles from copc file
-    # keys = get_keys(in_file_path,checkpoint.data_config["max_resolution"],checkpoint.data_config["target_tile_size"])
     keys = get_keys(in_file_path, data_config["max_resolution"], data_config["target_tile_size"])
 
-    # instanciate CopcInternalDataset
+    # Instanciate CopcInternalDataset
     dataset = CopcDatasetFactoryInference(DictConfig(data_config), keys)
     dataset.create_dataloaders(
         model,
@@ -266,6 +211,10 @@ def predict_folder_local(
         False,
     )
     print(dataset)
+
+    print("Scaling horizontal by %f and vertical by %f" % (hUnits, vUnits))
+    dataset.test_dataset[0].hunits = hUnits
+    dataset.test_dataset[0].vunits = vUnits
 
     model.eval()
     model = model.to(device)
@@ -279,14 +228,11 @@ def predict_folder_local(
         out_file_path,
         checkpoint.data_config.reverse_class_map,
         confidence_threshold,
+        override_all,
     )
 
 
 if __name__ == "__main__":
-    # predict_folder('/media/machinelearning/machine-learning/test-data/split/canyon',
-    #                '/media/machinelearning/machine-learning/test-data/test-out', 'rock-robotic/ground-v1/gdq4kqj0',
-    #                wandb_dir='/media/machinelearning/machine-learning/torch-points3d/wandb', model_name="ResUNet32",
-    #                metric="miou", cuda=False, num_workers=8, batch_size=8)
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -308,23 +254,35 @@ if __name__ == "__main__":
         help="Absolute path to checkpoint directory",
     )
     parser.add_argument("--model_name", type=str, default="ResUNet32", help="Model Name")
+    parser.add_argument(
+        "--wandb_run",
+        type=str,
+        default="",
+        help="Wandb run",
+    )
     parser.add_argument("--metric", type=str, default="miou", help="miou")
     parser.add_argument("--cuda", type=bool, default=True, help="cuda use flag")
     parser.add_argument("--num_workers", type=int, default=12, help="Number of CPU workers")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch Size")
+    parser.add_argument("--h_units", type=float, default=1.0, help="Horizontal Units")
+    parser.add_argument("--v_units", type=float, default=1.0, help="Vertical Units")
     parser.add_argument("--confidence_threshold", type=float, default=0.8, help="Confidence Threshold")
+    parser.add_argument("--override_all", type=bool, default=True, help="Override All")
 
     args = parser.parse_args()
 
-    predict_folder_local(
+    predict_folder(
         args.in_file_path,
         args.out_file_path,
         args.checkpoint_dir,
-        model_name=args.model_name,
-        metric=args.metric,
-        cuda=args.cuda,
-        num_workers=args.num_workers,
-        batch_size=args.batch_size,
-        debug=False,
-        confidence_threshold=args.confidence_threshold,
+        args.model_name,
+        args.wandb_run,
+        args.metric,
+        args.cuda,
+        args.num_workers,
+        args.batch_size,
+        args.h_units,
+        args.v_units,
+        args.confidence_threshold,
+        args.override_all,
     )
