@@ -7,6 +7,8 @@ data:
   target_tile_size: 150
   dataset_version: 1
   min_num_points: 200 # minimum number of points for a tile to be considered a valid sample
+  do_shift: False
+  augment_transform: None
   datasets:
     #    - name: name
     #        sampling_rate: # How often this dataset get selected to draw samples (0=never, 1=same probability as other datasets)

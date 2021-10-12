@@ -15,6 +15,7 @@ from joblib import Parallel, delayed
 from torch_points3d.datasets.base_dataset import BaseDataset
 from torch_points3d.datasets.segmentation import IGNORE_LABEL
 from torch_points3d.core.data_transform import ShiftVoxels
+from torch_points3d.core.data_transform import instantiate_transforms
 
 
 @dataclass
@@ -47,7 +48,6 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         datasets,
         hUnits=1.0,
         vUnits=1.0,
-        do_augment=False,
         do_shift=False,
         augment_transform=None,
         train_classes_weights=None,
@@ -89,7 +89,6 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         self.train_classes = train_classes
         self.hUnits = hUnits
         self.vUnits = vUnits
-        self.do_augment = do_augment
         self.do_shift = do_shift
         self.augment_transform = augment_transform
         self.datasets = datasets
@@ -246,7 +245,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         # if self.is_inference:
         #     data = SaveOriginalPosId()(data)
 
-        if self.do_augment:
+        if self.augment_transform:
             data = self.augment_transform(data)
 
         if self.transform:
@@ -350,6 +349,10 @@ class CopcDatasetFactory(BaseDataset):
             )
             dataset["files"] = {file.name: file for file in out_files}
 
+        augment_transform = None
+        if dataset_opt.augment:
+            augment_transform = instantiate_transforms(dataset_opt.augment_transform)
+
         self.train_dataset = CopcInternalDataset(
             root=dataset_opt.dataroot,
             split="train",
@@ -359,9 +362,8 @@ class CopcDatasetFactory(BaseDataset):
             resolution=dataset_opt.resolution,
             min_num_points=dataset_opt.min_num_points,
             datasets=datasets,
-            do_augment=dataset_opt.do_augment,
+            augment_transform=augment_transform,
             do_shift=dataset_opt.do_shift,
-            # augment_transform=instantiate_transforms(dataset_opt.augment),
             train_classes_weights=dataset_opt.training_classes_weights,
         )
 
@@ -374,7 +376,6 @@ class CopcDatasetFactory(BaseDataset):
             transform=self.val_transform,
             resolution=dataset_opt.resolution,
             min_num_points=dataset_opt.min_num_points,
-            do_augment=False,
             do_shift=dataset_opt.do_shift,
         )
 
@@ -387,7 +388,6 @@ class CopcDatasetFactory(BaseDataset):
             transform=self.test_transform,
             resolution=dataset_opt.resolution,
             min_num_points=dataset_opt.min_num_points,
-            do_augment=False,
             do_shift=dataset_opt.do_shift,
         )
 
@@ -440,6 +440,5 @@ class CopcDatasetFactoryInference(BaseDataset):
             transform=self.test_transform,
             resolution=dataset_opt.resolution,
             min_num_points=dataset_opt.min_num_points,
-            do_augment=False,
             do_shift=dataset_opt.do_shift,
         )
