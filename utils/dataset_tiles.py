@@ -42,7 +42,6 @@ def get_keys(datafile_path, max_resolution, target_tile_size):
     nearest_depth = round(math.log2(span / target_tile_size))
     num_voxels = 2 ** nearest_depth
     tile_size = span / num_voxels
-    print(tile_size)
 
     min_z = reader.GetLasHeader().min.z
     max_z = reader.GetLasHeader().max.z
