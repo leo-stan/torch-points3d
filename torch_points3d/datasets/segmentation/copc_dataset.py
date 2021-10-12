@@ -223,6 +223,10 @@ class CopcInternalDataset(torch.utils.data.Dataset):
             points[:, 2] *= self.vUnits
 
             for filter in dataset["filter_classes"]:
+                # don't keep filtering if all the points got filtered out
+                if len(points) < self.min_num_points:
+                    break
+
                 mask = y != filter
                 y = y[mask]
                 points = points[mask]
