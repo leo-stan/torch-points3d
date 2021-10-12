@@ -6,6 +6,7 @@ import numpy as np
 import wandb
 import concurrent.futures
 from tqdm import tqdm
+import ast
 
 # Import BaseModel / BaseDataset for type checking
 from torch_points3d.models.base_model import BaseModel
@@ -52,11 +53,15 @@ def run(model: BaseModel, dataset, device, in_path, out_path, reverse_class_map,
 
     print("RUNNING INFERENCE ON FILE: %s" % in_path)
     loaders = dataset.test_dataloaders
+    i = 0
     for loader in loaders:
         loader.dataset.name
         with Ctq(loader) as tq_test_loader:
             # run forward on each batch
             for data in tq_test_loader:
+                if i > 5:
+                    break
+                i += 1
                 with torch.no_grad():
                     model.set_input(data, device)
                     model.forward()
@@ -67,11 +72,9 @@ def run(model: BaseModel, dataset, device, in_path, out_path, reverse_class_map,
                     setattr(data, "_pred", output)
 
                     # iterate through each sample and update key_prediction_map
+                    # TODO: this part is slow?
                     for sample_idx in range(num_batches):
                         prediction = get_sample_attribute(data, "_pred", sample_idx, model.conv_type)
-                        points_idx_downsample = get_sample_attribute(
-                            data, SaveOriginalPosId.KEY, sample_idx, model.conv_type
-                        )
                         points_key = get_sample_attribute(data, "points_key", sample_idx, model.conv_type)
                         points_idx_node = get_sample_attribute(data, "points_idx", sample_idx, model.conv_type)
 
@@ -83,13 +86,23 @@ def run(model: BaseModel, dataset, device, in_path, out_path, reverse_class_map,
 
                         # convert the dense classes into ASPRS classes
                         new_labels = preds.clone()
-                        for source, target in reverse_class_map.items():
+                        for source, target in reverse_class_map:
                             mask = preds == source
                             new_labels[mask] = target
 
                         # update key_prediction_map
-                        changed_idx = points_idx_node[points_idx_downsample]
-                        key_prediction_map[points_key] = (changed_idx, new_labels)
+                        for key, idx, label in zip(points_key, points_idx_node, new_labels):
+                            key_str = str(tuple(key))
+                            if key_str not in key_prediction_map:
+                                key_prediction_map[key_str] = ([], [])
+
+                            key_prediction_map[key_str][0].append(idx)
+                            key_prediction_map[key_str][1].append(label)
+                        # changed_idx = points_idx_node
+                        # key_dict = {str(list(key)): [] for key in points_key}
+                        # key_prediction_map[str(tuple(points_key))] = (changed_idx, new_labels)
+
+    print("WRITING OUTPUT FILE: %s" % out_path)
 
     cfg = copc.LasConfig(
         reader.GetLasHeader(),
@@ -97,11 +110,11 @@ def run(model: BaseModel, dataset, device, in_path, out_path, reverse_class_map,
     )
     writer = copc.FileWriter(out_path, cfg, reader.GetCopcHeader().span, reader.GetWkt())
 
-    print("WRITING OUTPUT FILE: %s" % out_path)
-
     # for all the nodes that haven't been classified, we can write them out directly
     # (this should only be nodes whose depth is greater than our min_resolution)
-    nodes_not_changed = [node for node in all_nodes if node not in key_prediction_map]
+    nodes_not_changed = [
+        node for node in all_nodes if str((node.key.d, node.key.x, node.key.y, node.key.z)) not in key_prediction_map
+    ]
     for node in nodes_not_changed:
         compressed_points = reader.GetPointDataCompressed(node.key)
         writer.AddNodeCompressed(writer.GetRootPage(), node.key, compressed_points, node.point_count)
@@ -115,10 +128,15 @@ def run(model: BaseModel, dataset, device, in_path, out_path, reverse_class_map,
         with tqdm(total=len(key_prediction_map)) as progress:
             futures = []
             # for each node in the key_prediction_map, launch a future that updates its classification
-            for key, (changed_idx, prediction) in key_prediction_map:
+            for key_str, (changed_idx, prediction) in key_prediction_map.items():
+                # tuple string to tuple
+                key = ast.literal_eval(key_str)
+                key = copc.VoxelKey(*list(key))
                 node = reader.FindNode(key)
                 compressed_points = reader.GetPointDataCompressed(key)
-                future = executor.submit(update_node_predictions, compressed_points, node, changed_idx, prediction)
+                future = executor.submit(
+                    update_node_predictions, compressed_points, node, changed_idx, prediction, writer.GetLasHeader()
+                )
                 future.add_done_callback(lambda p: progress.update())
                 futures.append(future)
 
@@ -213,17 +231,7 @@ def predict_folder_local(
     # log.info(model)
     print("Model size = %i", sum(param.numel() for param in model.parameters() if param.requires_grad))
 
-    # Load input file
-    reader = copc.FileReader(in_file_path)
     data_config["inference_file"] = in_file_path
-
-    # Create the COPC writer
-    cfg = copc.LasConfig(
-        reader.GetLasHeader(),
-        reader.GetExtraByteVlr(),
-    )
-    writer = copc.FileWriter(out_file_path, cfg, reader.GetCopcHeader().span, reader.GetWkt())
-
     data_config["max_resolution"] = 10
     data_config["target_tile_size"] = 150
 
@@ -246,7 +254,15 @@ def predict_folder_local(
     model = model.to(device)
 
     # Predict
-    run(model, dataset, device, writer, debug, confidence_threshold)
+    run(
+        model,
+        dataset,
+        device,
+        in_file_path,
+        out_file_path,
+        checkpoint.data_config.reverse_class_map,
+        confidence_threshold,
+    )
 
 
 if __name__ == "__main__":
@@ -256,15 +272,30 @@ if __name__ == "__main__":
     #                metric="miou", cuda=False, num_workers=8, batch_size=8)
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("in_file_path", type=str, help="Absolute path to file to process")
-    parser.add_argument("out_file_path", type=str, help="Absolute path to file to save")
-    parser.add_argument("checkpoint_dir", type=str, help="Absolute path to checkpoint directory")
-    parser.add_argument("model_name", type=str, help="Model Name")
-    parser.add_argument("--metric", type=str, help="miou")
-    parser.add_argument("--cuda", type=bool, default=False, help="cuda use flag")
-    parser.add_argument("--num_workers", type=int, default=1, help="Number of CPU workers")
+    parser.add_argument(
+        "--in_file_path",
+        type=str,
+        default="/media/nvme/pcdata/autzen/copc/split_0/octree.copc.laz",
+        help="Absolute path to file to process",
+    )
+    parser.add_argument(
+        "--out_file_path",
+        type=str,
+        default="/media/nvme/pcdata/autzen/copc/split_0/inference.copc.laz",
+        help="Absolute path to file to save",
+    )
+    parser.add_argument(
+        "--checkpoint_dir",
+        type=str,
+        default="/processing/torch-points3d/outputs/2021-10-11/15-20-55",
+        help="Absolute path to checkpoint directory",
+    )
+    parser.add_argument("--model_name", type=str, default="ResUNet32", help="Model Name")
+    parser.add_argument("--metric", type=str, default="miou", help="miou")
+    parser.add_argument("--cuda", type=bool, default=True, help="cuda use flag")
+    parser.add_argument("--num_workers", type=int, default=12, help="Number of CPU workers")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch Size")
-    parser.add_argument("--confidence_threshold", type=float, default=0.5, help="Confidence Threshold")
+    parser.add_argument("--confidence_threshold", type=float, default=0.8, help="Confidence Threshold")
 
     args = parser.parse_args()
 
