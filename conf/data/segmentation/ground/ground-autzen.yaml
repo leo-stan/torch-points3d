@@ -1,6 +1,6 @@
 data:
   task: segmentation
-  class: copc_dataset.CopcDataset
+  class: copc_dataset.CopcDatasetFactory
   dataroot: /media/nvme/pcdata
   resolution: 0.5
   max_resolution: 10
