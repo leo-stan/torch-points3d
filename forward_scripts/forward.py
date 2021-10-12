@@ -53,15 +53,11 @@ def run(model: BaseModel, dataset, device, in_path, out_path, reverse_class_map,
 
     print("RUNNING INFERENCE ON FILE: %s" % in_path)
     loaders = dataset.test_dataloaders
-    i = 0
     for loader in loaders:
         loader.dataset.name
         with Ctq(loader) as tq_test_loader:
             # run forward on each batch
             for data in tq_test_loader:
-                if i > 5:
-                    break
-                i += 1
                 with torch.no_grad():
                     model.set_input(data, device)
                     model.forward()
