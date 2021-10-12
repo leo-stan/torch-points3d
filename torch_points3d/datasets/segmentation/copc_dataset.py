@@ -1,24 +1,20 @@
 import torch
 from dataclasses import dataclass
 import ast
-from torch.functional import _return_counts
-
-from torch_geometric.data import Dataset, Data
-from torch_points3d.datasets.base_dataset import BaseDataset
-from torch_points3d.datasets.segmentation import IGNORE_LABEL
-from torch_points3d.core.data_transform import SaveOriginalPosId, ShiftVoxels, instantiate_transforms
-
+from torch_geometric.data import Data
 import copclib as copc
 import numpy as np
 import os
 import json
-import glob
 from sys import float_info
 from omegaconf import OmegaConf
 import random
-import time
 from tqdm import tqdm
 from joblib import Parallel, delayed
+
+from torch_points3d.datasets.base_dataset import BaseDataset
+from torch_points3d.datasets.segmentation import IGNORE_LABEL
+from torch_points3d.core.data_transform import ShiftVoxels
 
 
 @dataclass
