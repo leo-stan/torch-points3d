@@ -104,7 +104,15 @@ def do_inference(model, dataset, device, confidence_threshold, reverse_class_map
 
 
 def run(
-    model: BaseModel, dataset, device, in_path, out_path, reverse_class_map, confidence_threshold, override_all=True, debug=False
+    model: BaseModel,
+    dataset,
+    device,
+    in_path,
+    out_path,
+    reverse_class_map,
+    confidence_threshold,
+    override_all=True,
+    debug=False,
 ):
     # Load input file
     reader = copc.FileReader(in_path)
@@ -142,11 +150,11 @@ def run(
             futures = []
             # for each node in the key_prediction_map, launch a future that updates its classification
             for key_str, (changed_idx, prediction) in key_prediction_map.items():
-                if debug and key.d > reader.GetDepthAtResolution(dataset.dataset_opt.resolution):
-                    continue
                 # tuple string to tuple
                 key = ast.literal_eval(key_str)
                 key = copc.VoxelKey(*list(key))
+                if debug and key.d > reader.GetDepthAtResolution(dataset.dataset_opt.resolution):
+                    continue
                 node = reader.FindNode(key)
                 compressed_points = reader.GetPointDataCompressed(key)
                 future = executor.submit(
@@ -164,7 +172,7 @@ def run(
     print("DONE RUNNING INFERENCE!")
 
 
-def predict_folder(
+def predict_file(
     in_file_path,
     out_file_path,
     checkpoint_dir,
@@ -180,6 +188,9 @@ def predict_folder(
     override_all=True,
     debug=False,
 ):
+    if not os.path.exists(os.path.dirname(out_file_path)):
+        os.makedirs(os.path.dirname(out_file_path))
+
     device = torch.device("cuda" if (torch.cuda.is_available() and cuda) else "cpu")
     print("DEVICE : {}".format(device))
 
@@ -232,7 +243,7 @@ def predict_folder(
         checkpoint.data_config.reverse_class_map,
         confidence_threshold,
         override_all,
-        debug
+        debug,
     )
 
 
@@ -276,7 +287,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    predict_folder(
+    predict_file(
         args.in_file_path,
         args.out_file_path,
         args.checkpoint_dir,
