@@ -8,16 +8,22 @@ To test if everything is working:
 python train.py task=segmentation models=segmentation/sparseconv3d model_name=ResUNet32 training=minkowski_scannet data=segmentation/s3dis1x1-sparse training.wandb.log=False
 ```
 
-To launch test training:
+To launch autzen test training:
 
 ```
-python train.py task=segmentation models=segmentation/sparseconv3d model_name=ResUNet32 training=sparseconv3d_ground data=segmentation/ground/ground-autzen training.wandb.log=False
+python train.py task=segmentation models=segmentation/sparseconv3d model_name=ResUNet32 training=sparseconv3d_ground data=segmentation/ground/ground-autzen training.wandb.project=COPC-ground-v1-autzen
 ```
 
 To launch training:
 
 ```
-python train.py task=segmentation models=segmentation/sparseconv3d model_name=ResUNet32 training=sparseconv3d_ground data=segmentation/ground/ground-v1
+CUDA_VISIBLE_DEVICES=0 python train.py task=segmentation models=segmentation/sparseconv3d model_name=ResUNet32 training=sparseconv3d_ground data=segmentation/ground/ground-v1 training.wandb.name=tyrol_lux_sasche
+```
+
+To launch tyrol training:
+
+```
+CUDA_VISIBLE_DEVICES=1 python train.py task=segmentation models=segmentation/sparseconv3d model_name=ResUNet32 training=sparseconv3d_ground data=segmentation/ground/ground-v1 training.wandb.name=tyrol data.datasets.lux.num_training_samples=0 data.datasets.sasche.num_training_samples=0
 ```
 
 profile:
