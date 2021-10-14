@@ -34,12 +34,16 @@ def chunks(data, SIZE=10000):
         yield {k: data[k] for k in islice(it, SIZE)}
 
 
-def update_node_predictions(compressed_points, node, changed_idx, prediction, file_header):
+def update_node_predictions(compressed_points, node, changed_idx, prediction, file_header, override_all):
     uncompressed_copc_points = copc.DecompressBytes(compressed_points, file_header, node.point_count)
     copc_points = copc.Points.Unpack(uncompressed_copc_points, file_header)
 
-    classifications = np.zeros(node.point_count)
-    classifications[changed_idx] = prediction
+    classifications_new = np.zeros(node.point_count)
+    classifications_new[changed_idx] = prediction
+
+    classifications = np.array(copc_points.Classification)
+    mask = classifications <= 2 if not override_all else [True] * len(classifications)
+    classifications[mask] = classifications_new[mask]
     copc_points.Classification = classifications.astype(int)
 
     # for point in copc_points:
@@ -131,6 +135,14 @@ def run(
     )
     writer = copc.FileWriter(out_path, cfg, reader.GetCopcHeader().span, reader.GetWkt())
 
+    # if we want to override all the point's classifications and start fresh,
+    # make sure the nodes_not_changed list is empty
+    if override_all:
+        for node in all_nodes:
+            key_str = str((node.key.d, node.key.x, node.key.y, node.key.z))
+            if key_str not in key_prediction_map:
+                key_prediction_map[key_str] = ([], [])
+
     # for all the nodes that haven't been classified, we can write them out directly
     # (this should only be nodes whose depth is greater than our min_resolution)
     nodes_not_changed = [
@@ -158,7 +170,13 @@ def run(
                 node = reader.FindNode(key)
                 compressed_points = reader.GetPointDataCompressed(key)
                 future = executor.submit(
-                    update_node_predictions, compressed_points, node, changed_idx, prediction, writer.GetLasHeader()
+                    update_node_predictions,
+                    compressed_points,
+                    node,
+                    changed_idx,
+                    prediction,
+                    writer.GetLasHeader(),
+                    override_all,
                 )
                 future.add_done_callback(lambda p: progress.update())
                 futures.append(future)
@@ -282,7 +300,7 @@ if __name__ == "__main__":
     parser.add_argument("--h_units", type=float, default=1.0, help="Horizontal Units")
     parser.add_argument("--v_units", type=float, default=1.0, help="Vertical Units")
     parser.add_argument("--confidence_threshold", type=float, default=0.8, help="Confidence Threshold")
-    parser.add_argument("--override_all", type=bool, default=True, help="Override All")
+    parser.add_argument("--override_all", action="store_true", help="Override All")
     parser.add_argument("--debug", action="store_true", help="debug flag")
 
     args = parser.parse_args()
