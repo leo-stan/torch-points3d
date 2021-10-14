@@ -9,6 +9,7 @@ from tqdm import tqdm
 import ast
 import argparse
 from itertools import islice
+import time
 
 import copclib as copc
 
@@ -65,18 +66,22 @@ def get_sample_attribute(data, key, sample_idx, conv_type):
 def do_inference(model, dataset, device, confidence_threshold, reverse_class_map, key_prediction_map):
     loaders = dataset.test_dataloaders
     for loader in loaders:
+        iter_data_time = time.time()
         with Ctq(loader) as tq_test_loader:
             # run forward on each batch
             for data in tq_test_loader:
+                t_data = time.time() - iter_data_time
+                iter_start_time = time.time()
                 with torch.no_grad():
                     model.set_input(data, device)
                     model.forward()
 
+                    t_iter = time.time() - iter_start_time
+                    t_other_start = time.time()
                     # add the predictions as a sample attribute
                     output = model.get_output()
                     num_batches = BaseDataset.get_num_samples(data, model.conv_type).item()
                     setattr(data, "_pred", output)
-
                     # iterate through each sample and update key_prediction_map
                     # TODO: this part is slow?
                     for sample_idx in range(num_batches):
@@ -105,6 +110,9 @@ def do_inference(model, dataset, device, confidence_threshold, reverse_class_map
 
                             key_prediction_map[key_str][0].append(idx)
                             key_prediction_map[key_str][1].append(label)
+                t_other = time.time() - t_other_start
+                tq_test_loader.set_postfix(data_loading=float(t_data), iteration=float(t_iter), other=float(t_other))
+                iter_data_time = time.time()
 
 
 def run(
@@ -145,12 +153,15 @@ def run(
 
     # for all the nodes that haven't been classified, we can write them out directly
     # (this should only be nodes whose depth is greater than our min_resolution)
-    nodes_not_changed = [
-        node for node in all_nodes if str((node.key.d, node.key.x, node.key.y, node.key.z)) not in key_prediction_map
-    ]
-    for node in nodes_not_changed:
-        compressed_points = reader.GetPointDataCompressed(node.key)
-        writer.AddNodeCompressed(writer.GetRootPage(), node.key, compressed_points, node.point_count)
+    if not debug:
+        nodes_not_changed = [
+            node
+            for node in all_nodes
+            if str((node.key.d, node.key.x, node.key.y, node.key.z)) not in key_prediction_map
+        ]
+        for node in nodes_not_changed:
+            compressed_points = reader.GetPointDataCompressed(node.key)
+            writer.AddNodeCompressed(writer.GetRootPage(), node.key, compressed_points, node.point_count)
 
     # for nodes that have been classified, we need to decompress and get its points,
     # update the classifications, recompress, and write to the file
@@ -160,15 +171,17 @@ def run(
     with tqdm(total=len(key_prediction_map)) as progress:
         with concurrent.futures.ProcessPoolExecutor() as executor:
             futures = []
+            depth = reader.GetDepthAtResolution(dataset.dataset_opt.resolution)
             # for each node in the key_prediction_map, launch a future that updates its classification
             for key_str, (changed_idx, prediction) in key_prediction_map.items():
                 # tuple string to tuple
                 key = ast.literal_eval(key_str)
                 key = copc.VoxelKey(*list(key))
-                if debug and key.d > reader.GetDepthAtResolution(dataset.dataset_opt.resolution):
+                if debug and key.d > depth:
                     continue
                 node = reader.FindNode(key)
                 compressed_points = reader.GetPointDataCompressed(key)
+
                 future = executor.submit(
                     update_node_predictions,
                     compressed_points,
