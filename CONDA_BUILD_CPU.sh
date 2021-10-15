@@ -15,21 +15,14 @@ pip install torch ninja
 pip install -U MinkowskiEngine --install-option="--blas=openblas" -v --no-deps
 
 # other requires
-pip install wandb~=0.8.18 hydra-core~=1.0.0 torchnet~=0.0.4 tqdm tensorboard plyfile gdown h5py
+pip install wandb~=0.8.18 hydra-core~=1.0.0 torchnet~=0.0.4 tqdm tensorboard plyfile gdown h5py joblib
 pip install pytorch-metric-learning==0.9.87.dev0 --no-deps -U
 
-#optional
-pip install joblib tqdm
-
-
-# clone tp3d
-git clone https://github.com/RockRobotic/torch-points3d.git
-git checkout rock-prod
 
 conda install -c conda-forge pybind11 matplotlib -y
 git clone https://github.com/RockRobotic/laz-perf.git
 cd laz-perf
-git checkout copc-updates
+git checkout 070f39bf0fcd7126ca4138f3791c693547d85a68
 mkdir build && cd build
 cmake ..
 make -j 32
@@ -37,6 +30,7 @@ sudo make install
 cd ../..
 
 git clone https://github.com/RockRobotic/copc-lib.git
+cd copc-lib
 git checkout 61c16e6488bc0ce9b79564d74d58f55f70351f63
 mkdir build && cd build
 cmake ..
