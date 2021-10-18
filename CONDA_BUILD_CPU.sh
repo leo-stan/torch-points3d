@@ -24,7 +24,7 @@ git clone https://github.com/RockRobotic/laz-perf.git
 cd laz-perf
 git checkout 070f39bf0fcd7126ca4138f3791c693547d85a68
 mkdir build && cd build
-cmake ..
+cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j 32
 sudo make install
 cd ../..
@@ -33,7 +33,7 @@ git clone https://github.com/RockRobotic/copc-lib.git
 cd copc-lib
 git checkout 61c16e6488bc0ce9b79564d74d58f55f70351f63
 mkdir build && cd build
-cmake ..
+cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j 32
 sudo make install
 cd ..
