@@ -35,7 +35,7 @@ def chunks(data, SIZE=10000):
         yield {k: data[k] for k in islice(it, SIZE)}
 
 
-def update_node_predictions(compressed_points, node, changed_idx, prediction, file_header, override_all):
+def update_node_predictions(compressed_points, node, changed_idx, prediction, file_header, override_all, debug):
     uncompressed_copc_points = copc.DecompressBytes(compressed_points, file_header, node.point_count)
     copc_points = copc.Points.Unpack(uncompressed_copc_points, file_header)
 
@@ -47,12 +47,13 @@ def update_node_predictions(compressed_points, node, changed_idx, prediction, fi
     classifications[mask] = classifications_new[mask]
     copc_points.Classification = classifications.astype(int)
 
-    # for point in copc_points:
-    #     point.Red = node.key.x
-    #     point.Green = node.key.y
-    #     point.Blue = node.key.z
-    #     point.Intensity = node.key.d
-    #     point.PointSourceID = node.key.x + node.key.y
+    if debug:
+        for point in copc_points:
+            point.Red = node.key.x
+            point.Green = node.key.y
+            point.Blue = node.key.z
+            point.Intensity = node.key.d
+            point.PointSourceID = node.key.x + node.key.y
 
     compressed_points = copc.CompressBytes(copc_points.Pack(), file_header)
 
@@ -143,17 +144,18 @@ def run(
     )
     writer = copc.FileWriter(out_path, cfg, reader.GetCopcHeader().span, reader.GetWkt())
 
-    # if we want to override all the point's classifications and start fresh,
-    # make sure the nodes_not_changed list is empty
-    if override_all:
-        for node in all_nodes:
-            key_str = str((node.key.d, node.key.x, node.key.y, node.key.z))
-            if key_str not in key_prediction_map:
-                key_prediction_map[key_str] = ([], [])
-
     # for all the nodes that haven't been classified, we can write them out directly
     # (this should only be nodes whose depth is greater than our min_resolution)
     if not debug:
+
+        # if we want to override all the point's classifications and start fresh,
+        # make sure the nodes_not_changed list is empty
+        if override_all:
+            for node in all_nodes:
+                key_str = str((node.key.d, node.key.x, node.key.y, node.key.z))
+                if key_str not in key_prediction_map:
+                    key_prediction_map[key_str] = ([], [])
+
         nodes_not_changed = [
             node
             for node in all_nodes
@@ -190,6 +192,7 @@ def run(
                     prediction,
                     writer.GetLasHeader(),
                     override_all,
+                    debug,
                 )
                 future.add_done_callback(lambda p: progress.update())
                 futures.append(future)
@@ -239,7 +242,7 @@ def predict_file(
     data_config["is_inference"] = True
     model = checkpoint.create_model(DictConfig(checkpoint.dataset_properties), weight_name=metric)
 
-    print("Model size = %i", sum(param.numel() for param in model.parameters() if param.requires_grad))
+    print("Model size = %i" % sum(param.numel() for param in model.parameters() if param.requires_grad))
 
     data_config["inference_file"] = in_file_path
 
