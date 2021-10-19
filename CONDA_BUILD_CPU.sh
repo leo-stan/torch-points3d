@@ -1,3 +1,5 @@
+sudo apt-get install build-essential python3-dev cmake libopenblas-dev
+
 conda activate base
 conda create -n tp3d-cpu -y
 conda activate tp3d-cpu
@@ -10,7 +12,6 @@ pip install torch-points-kernels --no-cache-dir
 
 # mink
 export SPARSE_BACKEND=minkowski
-sudo apt install build-essential python3-dev libopenblas-dev
 pip install torch ninja
 pip install -U MinkowskiEngine --install-option="--blas=openblas" -v --no-deps
 
