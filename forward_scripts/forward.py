@@ -244,7 +244,7 @@ def predict_file(
     data_config["inference_file"] = in_file_path
 
     # Load the tiles from copc file
-    keys = get_keys(in_file_path, data_config["max_resolution"], data_config["target_tile_size"])
+    keys = get_keys(in_file_path, data_config["max_resolution"]/hUnits, data_config["target_tile_size"]/hUnits)
 
     # Instanciate CopcInternalDataset
     dataset = CopcDatasetFactoryInference(DictConfig(data_config), keys)
