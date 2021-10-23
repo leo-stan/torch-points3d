@@ -137,11 +137,8 @@ def run(
 
     print("WRITING OUTPUT FILE: %s" % out_path)
 
-    cfg = copc.LasConfig(
-        reader.GetLasHeader(),
-        reader.GetExtraByteVlr(),
-    )
-    writer = copc.FileWriter(out_path, cfg, reader.GetCopcHeader().span, reader.GetWkt())
+    cfg = reader.GetCopcConfig()
+    writer = copc.FileWriter(out_path, cfg)
 
     # if we want to override all the point's classifications and start fresh,
     # make sure the nodes_not_changed list is empty
@@ -188,7 +185,7 @@ def run(
                     node,
                     changed_idx,
                     prediction,
-                    writer.GetLasHeader(),
+                    writer.las_header,
                     override_all,
                 )
                 future.add_done_callback(lambda p: progress.update())
