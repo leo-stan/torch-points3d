@@ -185,7 +185,7 @@ def run(
                     node,
                     changed_idx,
                     prediction,
-                    writer.las_header,
+                    writer.copc_config.las_header,
                     override_all,
                 )
                 future.add_done_callback(lambda p: progress.update())
