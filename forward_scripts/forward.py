@@ -138,11 +138,7 @@ def run(
 
     print("WRITING OUTPUT FILE: %s" % out_path)
 
-    cfg = copc.LasConfig(
-        reader.GetLasHeader(),
-        reader.GetExtraByteVlr(),
-    )
-    writer = copc.FileWriter(out_path, cfg, reader.GetCopcHeader().span, reader.GetWkt())
+    writer = copc.FileWriter(out_path, reader.copc_config)
 
     # for all the nodes that haven't been classified, we can write them out directly
     # (this should only be nodes whose depth is greater than our min_resolution)
@@ -190,7 +186,7 @@ def run(
                     node,
                     changed_idx,
                     prediction,
-                    writer.GetLasHeader(),
+                    writer.copc_config.las_header,
                     override_all,
                     debug,
                 )

@@ -35,7 +35,7 @@ def cartesian_product(*arrays):
 
 def get_keys(datafile_path, max_resolution, target_tile_size):
     reader = copc.FileReader(datafile_path)
-    header = reader.GetLasHeader()
+    header = reader.copc_config.las_header
     max_depth = reader.GetDepthAtResolution(max_resolution)
 
     span = header.GetSpan()
@@ -43,8 +43,8 @@ def get_keys(datafile_path, max_resolution, target_tile_size):
     num_voxels = 2 ** nearest_depth
     tile_size = span / num_voxels
 
-    min_z = reader.GetLasHeader().min.z
-    max_z = reader.GetLasHeader().max.z
+    min_z = reader.copc_config.las_header.min.z
+    max_z = reader.copc_config.las_header.max.z
     max_z_coord = math.ceil((max_z - min_z) / (span / 2 ** nearest_depth))
 
     keys = np.array([[node.key.d, node.key.x, node.key.y, node.key.z] for node in reader.GetAllChildren()])
