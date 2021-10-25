@@ -124,7 +124,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
 
         # create reader
         reader = copc.FileReader(file.path)
-        header = reader.GetLasHeader()
+        header = reader.copc_config.las_header
         max_depth = file.max_depth
 
         # Extract nearest depth, x, and y from sample
