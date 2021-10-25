@@ -137,8 +137,7 @@ def run(
 
     print("WRITING OUTPUT FILE: %s" % out_path)
 
-    cfg = reader.copc_config
-    writer = copc.FileWriter(out_path, cfg)
+    writer = copc.FileWriter(out_path, reader.copc_config)
 
     # if we want to override all the point's classifications and start fresh,
     # make sure the nodes_not_changed list is empty
