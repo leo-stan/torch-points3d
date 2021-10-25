@@ -408,7 +408,7 @@ class CopcDatasetFactory(BaseDataset):
 
 
 class CopcDatasetFactoryInference(BaseDataset):
-    def __init__(self, dataset_opt, keys):
+    def __init__(self, dataset_opt, keys, hUnits, vUnits):
         super().__init__(dataset_opt)
 
         file = get_hierarchy(
@@ -441,4 +441,6 @@ class CopcDatasetFactoryInference(BaseDataset):
             resolution=dataset_opt.resolution,
             min_num_points=dataset_opt.min_num_points,
             do_shift=dataset_opt.do_shift,
+            hUnits=hUnits,
+            vUnits=vUnits,
         )

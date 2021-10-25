@@ -245,8 +245,8 @@ def predict_file(
     # Load the tiles from copc file
     keys = get_keys(in_file_path, data_config["max_resolution"] / hUnits, data_config["target_tile_size"] / hUnits)
 
-    # Instanciate CopcInternalDataset
-    dataset = CopcDatasetFactoryInference(DictConfig(data_config), keys)
+    # Instantiate CopcInternalDataset
+    dataset = CopcDatasetFactoryInference(DictConfig(data_config), keys, hUnits, vUnits)
     dataset.create_dataloaders(
         model,
         batch_size,
@@ -306,7 +306,9 @@ if __name__ == "__main__":
         help="Wandb run",
     )
     parser.add_argument("--metric", type=str, default="miou", help="miou")
-    parser.add_argument("--cuda", type=bool, default=True, help="cuda use flag")
+    parser.add_argument("--cuda", dest="cuda", action="store_true")
+    parser.add_argument("--cpu", dest="cuda", action="store_false")
+    parser.set_defaults(cuda=True)
     parser.add_argument("--num_workers", type=int, default=12, help="Number of CPU workers")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch Size")
     parser.add_argument("--h_units", type=float, default=1.0, help="Horizontal Units")
