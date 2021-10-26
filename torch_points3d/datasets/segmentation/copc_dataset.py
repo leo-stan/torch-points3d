@@ -251,6 +251,14 @@ class CopcInternalDataset(torch.utils.data.Dataset):
                 points = points[mask]
             y = self._remap_labels(torch.from_numpy(y), dataset)
 
+        if len(points) < self.min_num_points:
+            if self.random_sample:
+                # if there's no points in this sample, just get another sample:
+                return self[0]
+            else:
+                # there's not really a great way to handle this
+                return self[random.randint(0, self.nb_samples - 1)]
+
         # print("remap done in %f" % (time.time() - t))
         # t = time.time()
         points_key = np.concatenate(points_key)
@@ -264,14 +272,6 @@ class CopcInternalDataset(torch.utils.data.Dataset):
             points_key=torch.from_numpy(np.asarray(points_key)),
             points_idx=torch.from_numpy(np.asarray(points_idx)),
         )
-
-        if len(data.pos) < self.min_num_points:
-            if self.random_sample:
-                # if there's no points in this sample, just get another sample:
-                return self[0]
-            else:
-                # there's not really a great way to handle this
-                return self[random.randint(0, self.nb_samples - 1)]
 
         # if self.is_inference:
         #     data = SaveOriginalPosId()(data)
