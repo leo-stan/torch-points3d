@@ -255,8 +255,8 @@ class BaseDataset:
             torch.utils.data.DataLoader,
             collate_fn=batch_collate_function,
             worker_init_fn=np.random.seed,
-            persistent_workers=persistent_workers,
-            prefetch_factor=1,
+            # persistent_workers=persistent_workers,
+            prefetch_factor=1 if num_workers > 0 else 2,
             pin_memory=True,
         )
         return dataloader(dataset, **kwargs)

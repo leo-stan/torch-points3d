@@ -6,7 +6,6 @@ import numpy as np
 import wandb
 import concurrent.futures
 from tqdm import tqdm
-import ast
 import argparse
 from itertools import islice
 import time
@@ -89,7 +88,7 @@ def unpack_predictions(data, confidence_threshold, reverse_class_map, conv_type)
 
         # update key_prediction_map
         for key, idx, label in zip(points_key, points_idx_node, new_labels):
-            key_str = str(tuple(key))
+            key_str = tuple(key)
             if key_str not in key_prediction_map:
                 key_prediction_map[key_str] = ([], [])
 
@@ -174,7 +173,7 @@ def run(
         # make sure the nodes_not_changed list is empty
         if override_all:
             for node in all_nodes:
-                key_str = str((node.key.d, node.key.x, node.key.y, node.key.z))
+                key_str = (node.key.d, node.key.x, node.key.y, node.key.z)
                 if key_str not in key_prediction_map:
                     key_prediction_map[key_str] = ([], [])
 
@@ -199,7 +198,8 @@ def run(
             # for each node in the key_prediction_map, launch a future that updates its classification
             for key_str, (changed_idx, prediction) in key_prediction_map.items():
                 # tuple string to tuple
-                key = ast.literal_eval(key_str)
+                # key = ast.literal_eval(key_str)
+                key = key_str
                 key = copc.VoxelKey(*list(key))
                 if debug and key.d > depth:
                     continue
