@@ -10,6 +10,7 @@ import ast
 import argparse
 from itertools import islice
 import time
+import torch.multiprocessing as mp
 
 import copclib as copc
 
@@ -64,56 +65,81 @@ def get_sample_attribute(data, key, sample_idx, conv_type):
     return BaseDataset.get_sample(data, key, sample_idx, conv_type).cpu().numpy()
 
 
+def unpack_predictions(data, confidence_threshold, reverse_class_map, conv_type):
+    # iterate through each sample and update key_prediction_map
+    num_batches = BaseDataset.get_num_samples(data, conv_type).item()
+    key_prediction_map = {}
+    for sample_idx in range(num_batches):
+        prediction = get_sample_attribute(data, "_pred", sample_idx, conv_type)
+        points_key = get_sample_attribute(data, "points_key", sample_idx, conv_type)
+        points_idx_node = get_sample_attribute(data, "points_idx", sample_idx, conv_type)
+
+        # run softmax on the outputs and check the confidence level
+        probs = torch.nn.functional.softmax(torch.from_numpy(np.copy(prediction)), dim=1)
+        probs_max, preds = torch.max(probs, dim=1)
+        preds = preds + 1  # make room for the ignore class at class 0
+        preds[probs_max <= confidence_threshold] = 0  # set unconfident predictions to 0
+
+        # convert the dense classes into ASPRS classes
+        new_labels = preds.clone()
+        for source, target in reverse_class_map:
+            mask = preds == source
+            new_labels[mask] = target
+        new_labels = new_labels.numpy()
+
+        # update key_prediction_map
+        for key, idx, label in zip(points_key, points_idx_node, new_labels):
+            key_str = str(tuple(key))
+            if key_str not in key_prediction_map:
+                key_prediction_map[key_str] = ([], [])
+
+            key_prediction_map[key_str][0].append(idx)
+            key_prediction_map[key_str][1].append(label)
+    return key_prediction_map
+
+
 def do_inference(model, dataset, device, confidence_threshold, reverse_class_map, key_prediction_map):
     loaders = dataset.test_dataloaders
-    for loader in loaders:
-        iter_data_time = time.time()
-        with Ctq(loader) as tq_test_loader:
-            # run forward on each batch
-            for data in tq_test_loader:
-                t_data = time.time() - iter_data_time
-                iter_start_time = time.time()
-                with torch.no_grad():
-                    model.set_input(data, device)
-                    model.forward()
+    with mp.Pool() as pool:
+        futures = []
+        for loader in loaders:
+            iter_data_time = time.time()
+            with Ctq(loader) as tq_test_loader:
+                # run forward on each batch
+                for data in tq_test_loader:
+                    t_data = time.time() - iter_data_time
+                    iter_start_time = time.time()
+                    with torch.no_grad():
+                        model.set_input(data, device)
+                        model.forward()
 
-                    t_iter = time.time() - iter_start_time
-                    t_other_start = time.time()
-                    # add the predictions as a sample attribute
-                    output = model.get_output()
-                    num_batches = BaseDataset.get_num_samples(data, model.conv_type).item()
-                    setattr(data, "_pred", output)
-                    # iterate through each sample and update key_prediction_map
-                    # TODO: this part is slow?
-                    for sample_idx in range(num_batches):
-                        prediction = get_sample_attribute(data, "_pred", sample_idx, model.conv_type)
-                        points_key = get_sample_attribute(data, "points_key", sample_idx, model.conv_type)
-                        points_idx_node = get_sample_attribute(data, "points_idx", sample_idx, model.conv_type)
+                        t_iter = time.time() - iter_start_time
+                        t_other_start = time.time()
 
-                        # run softmax on the outputs and check the confidence level
-                        probs = torch.nn.functional.softmax(torch.from_numpy(np.copy(prediction)), dim=1)
-                        probs_max, preds = torch.max(probs, dim=1)
-                        preds = preds + 1  # make room for the ignore class at class 0
-                        preds[probs_max <= confidence_threshold] = 0  # set unconfident predictions to 0
+                        # add the predictions as a sample attribute
+                        output = model.get_output()
+                        setattr(data, "_pred", output)
 
-                        # convert the dense classes into ASPRS classes
-                        new_labels = preds.clone()
-                        for source, target in reverse_class_map:
-                            mask = preds == source
-                            new_labels[mask] = target
-                        new_labels = new_labels.numpy()
+                        future = pool.apply_async(
+                            unpack_predictions, (data.cpu(), confidence_threshold, reverse_class_map, model.conv_type)
+                        )
+                        futures.append(future)
 
-                        # update key_prediction_map
-                        for key, idx, label in zip(points_key, points_idx_node, new_labels):
-                            key_str = str(tuple(key))
-                            if key_str not in key_prediction_map:
-                                key_prediction_map[key_str] = ([], [])
+                    t_other = time.time() - t_other_start
+                    tq_test_loader.set_postfix(
+                        data_loading=float(t_data), iteration=float(t_iter), other=float(t_other)
+                    )
+                    iter_data_time = time.time()
 
-                            key_prediction_map[key_str][0].append(idx)
-                            key_prediction_map[key_str][1].append(label)
-                t_other = time.time() - t_other_start
-                tq_test_loader.set_postfix(data_loading=float(t_data), iteration=float(t_iter), other=float(t_other))
-                iter_data_time = time.time()
+        print("MERGING PREDICTIONS")
+        key_prediction_maps = [res.get() for res in futures]
+        for map in key_prediction_maps:
+            for key_str, (idx, label) in map.items():
+                if key_str not in key_prediction_map:
+                    key_prediction_map[key_str] = ([], [])
+
+                key_prediction_map[key_str][0].extend(idx)
+                key_prediction_map[key_str][1].extend(label)
 
 
 def run(
@@ -184,8 +210,8 @@ def run(
                     update_node_predictions,
                     compressed_points,
                     node,
-                    changed_idx,
-                    prediction,
+                    np.array(changed_idx),
+                    np.array(prediction),
                     writer.copc_config.las_header,
                     override_all,
                     debug,
@@ -302,7 +328,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--wandb_run",
         type=str,
-        default="",
+        default="rock-robotic/COPC-ground-v1/31kc98wj",
         help="Wandb run",
     )
     parser.add_argument("--metric", type=str, default="miou", help="miou")
@@ -311,8 +337,8 @@ if __name__ == "__main__":
     parser.set_defaults(cuda=True)
     parser.add_argument("--num_workers", type=int, default=12, help="Number of CPU workers")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch Size")
-    parser.add_argument("--h_units", type=float, default=1.0, help="Horizontal Units")
-    parser.add_argument("--v_units", type=float, default=1.0, help="Vertical Units")
+    parser.add_argument("--h_units", type=float, default=0.30, help="Horizontal Units")
+    parser.add_argument("--v_units", type=float, default=0.30, help="Vertical Units")
     parser.add_argument("--confidence_threshold", type=float, default=0.8, help="Confidence Threshold")
     parser.add_argument("--override_all", action="store_true", help="Override All")
     parser.add_argument("--debug", action="store_true", help="debug flag")

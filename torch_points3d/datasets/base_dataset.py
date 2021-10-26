@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 
 
 def explode_transform(transforms):
-    """ Returns a flattened list of transform
+    """Returns a flattened list of transform
     Arguments:
         transforms {[list | T.Compose]} -- Contains list of transform to be added
 
@@ -91,7 +91,7 @@ class BaseDataset:
 
     @staticmethod
     def remove_transform(transform_in, list_transform_class):
-        """ Remove a transform if within list_transform_class
+        """Remove a transform if within list_transform_class
 
         Arguments:
             transform_in {[type]} -- [Compose | List of transform]
@@ -114,8 +114,7 @@ class BaseDataset:
 
     @staticmethod
     def set_transform(obj, dataset_opt):
-        """This function create and set the transform to the obj as attributes
-        """
+        """This function create and set the transform to the obj as attributes"""
         obj.pre_transform = None
         obj.test_transform = None
         obj.train_transform = None
@@ -137,8 +136,7 @@ class BaseDataset:
         obj.inference_transform = Compose(inference_transform) if len(inference_transform) > 0 else None
 
     def set_filter(self, dataset_opt):
-        """This function create and set the pre_filter to the obj as attributes
-        """
+        """This function create and set the pre_filter to the obj as attributes"""
         self.pre_filter = None
         for key_name in dataset_opt.keys():
             if "filter" in key_name:
@@ -198,8 +196,7 @@ class BaseDataset:
         num_workers: int,
         precompute_multi_scale: bool,
     ):
-        """ Creates the data loaders. Must be called in order to complete the setup of the Dataset
-        """
+        """Creates the data loaders. Must be called in order to complete the setup of the Dataset"""
         conv_type = model.conv_type
         self._batch_size = batch_size
 
@@ -259,6 +256,8 @@ class BaseDataset:
             collate_fn=batch_collate_function,
             worker_init_fn=np.random.seed,
             persistent_workers=persistent_workers,
+            prefetch_factor=1,
+            pin_memory=True,
         )
         return dataloader(dataset, **kwargs)
 
@@ -376,7 +375,7 @@ class BaseDataset:
             raise Exception("Dataset {} doesn t have a get_raw_data function implemented".format(dataset))
 
     def has_labels(self, stage: str) -> bool:
-        """ Tests if a given dataset has labels or not
+        """Tests if a given dataset has labels or not
 
         Parameters
         ----------
@@ -396,14 +395,13 @@ class BaseDataset:
     @property  # type: ignore
     @save_used_properties
     def is_hierarchical(self):
-        """ Used by the metric trackers to log hierarchical metrics
-        """
+        """Used by the metric trackers to log hierarchical metrics"""
         return False
 
     @property  # type: ignore
     @save_used_properties
     def class_to_segments(self):
-        """ Use this property to return the hierarchical map between classes and segment ids, example:
+        """Use this property to return the hierarchical map between classes and segment ids, example:
         {
             'Airplaine': [0,1,2],
             'Boat': [3,4,5]
@@ -452,7 +450,7 @@ class BaseDataset:
         return out
 
     def get_dataset(self, name):
-        """ Get a dataset by name. Raises an exception if no dataset was found
+        """Get a dataset by name. Raises an exception if no dataset was found
 
         Parameters
         ----------
@@ -477,7 +475,9 @@ class BaseDataset:
                 current_transform.transforms += [transform]
             elif current_transform != transform:
                 setattr(
-                    attr.dataset, "transform", Compose([current_transform, transform]),
+                    attr.dataset,
+                    "transform",
+                    Compose([current_transform, transform]),
                 )
 
     def _set_multiscale_transform(self, transform):
@@ -525,8 +525,7 @@ class BaseDataset:
         return selection_stage
 
     def add_weights(self, dataset_name="train", class_weight_method="sqrt"):
-        """ Add class weights to a given dataset that are then accessible using the `class_weights` attribute
-        """
+        """Add class weights to a given dataset that are then accessible using the `class_weights` attribute"""
         L = self.num_classes
         weights = torch.ones(L)
         dataset = self.get_dataset(dataset_name)
