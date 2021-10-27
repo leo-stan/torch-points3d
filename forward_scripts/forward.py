@@ -64,55 +64,10 @@ def get_sample_attribute(data, key, sample_idx, conv_type):
     return BaseDataset.get_sample(data, key, sample_idx, conv_type).cpu().numpy()
 
 
-def unpack_predictions(data, confidence_threshold, reverse_class_map, conv_type):
-    print("Start unpack predictions")
-    print(data)
-    print(data.pos.device)
-    print(data.batch)
-    print(data.batch.max())
-    print(data.pos)
-    # iterate through each sample and update key_prediction_map
-    num_batches = BaseDataset.get_num_samples(data, conv_type).item()
-    key_prediction_map = {}
-    print("test")
-    print(range(num_batches))
-    i = 0
-    for sample_idx in range(num_batches):
-        print(i)
-        i += 1
-        prediction = get_sample_attribute(data, "_pred", sample_idx, conv_type)
-        points_key = get_sample_attribute(data, "points_key", sample_idx, conv_type)
-        points_idx_node = get_sample_attribute(data, "points_idx", sample_idx, conv_type)
-
-        # run softmax on the outputs and check the confidence level
-        probs = torch.nn.functional.softmax(torch.from_numpy(np.copy(prediction)), dim=1)
-        probs_max, preds = torch.max(probs, dim=1)
-        preds = preds + 1  # make room for the ignore class at class 0
-        preds[probs_max <= confidence_threshold] = 0  # set unconfident predictions to 0
-
-        # convert the dense classes into ASPRS classes
-        new_labels = preds.clone()
-        for source, target in reverse_class_map:
-            mask = preds == source
-            new_labels[mask] = target
-        new_labels = new_labels.numpy()
-
-        # update key_prediction_map
-        for key, idx, label in zip(points_key, points_idx_node, new_labels):
-            key_str = tuple(key)
-            if key_str not in key_prediction_map:
-                key_prediction_map[key_str] = ([], [])
-
-            key_prediction_map[key_str][0].append(idx)
-            key_prediction_map[key_str][1].append(label)
-    print("Finish unpack predictions")
-    return key_prediction_map
-
-
-def do_inference(model, dataset, device, confidence_threshold, reverse_class_map, key_prediction_map):
+def do_inference(model, dataset, device, confidence_threshold, reverse_class_map):
     loaders = dataset.test_dataloaders
+    key_prediction_maps = []
     with mp.Pool() as pool:
-        futures = []
         for loader in loaders:
             iter_data_time = time.time()
             with Ctq(loader) as tq_test_loader:
@@ -130,11 +85,39 @@ def do_inference(model, dataset, device, confidence_threshold, reverse_class_map
                         # add the predictions as a sample attribute
                         output = model.get_output()
                         setattr(data, "_pred", output)
-                        unpack_predictions(data.cpu(), confidence_threshold, reverse_class_map, model.conv_type)
-                        # future = pool.apply_async(
-                        #     unpack_predictions, (data.cpu(), confidence_threshold, reverse_class_map, model.conv_type)
-                        # )
-                        # futures.append(future)
+
+                        # iterate through each sample and update key_prediction_map
+                        num_batches = BaseDataset.get_num_samples(data, model.conv_type).item()
+                        key_prediction_map = {}
+                        i = 0
+                        for sample_idx in range(num_batches):
+                            i += 1
+                            prediction = get_sample_attribute(data, "_pred", sample_idx, model.conv_type)
+                            points_key = get_sample_attribute(data, "points_key", sample_idx, model.conv_type)
+                            points_idx_node = get_sample_attribute(data, "points_idx", sample_idx, model.conv_type)
+
+                            # run softmax on the outputs and check the confidence level
+                            probs = torch.nn.functional.softmax(torch.from_numpy(np.copy(prediction)), dim=1)
+                            probs_max, preds = torch.max(probs, dim=1)
+                            preds = preds + 1  # make room for the ignore class at class 0
+                            preds[probs_max <= confidence_threshold] = 0  # set unconfident predictions to 0
+
+                            # convert the dense classes into ASPRS classes
+                            new_labels = preds.clone()
+                            for source, target in reverse_class_map:
+                                mask = preds == source
+                                new_labels[mask] = target
+                            new_labels = new_labels.numpy()
+
+                            # update key_prediction_map
+                            for key, idx, label in zip(points_key, points_idx_node, new_labels):
+                                key_str = tuple(key)
+                                if key_str not in key_prediction_map:
+                                    key_prediction_map[key_str] = ([], [])
+
+                                key_prediction_map[key_str][0].append(idx)
+                                key_prediction_map[key_str][1].append(label)
+                        key_prediction_maps.append(key_prediction_map)
 
                     t_other = time.time() - t_other_start
                     tq_test_loader.set_postfix(
@@ -143,8 +126,7 @@ def do_inference(model, dataset, device, confidence_threshold, reverse_class_map
                     iter_data_time = time.time()
 
         print("MERGING PREDICTIONS")
-        key_prediction_maps = [res.get() for res in futures]
-        print("Futures gathered")
+        key_prediction_map = {}
         for map in key_prediction_maps:
             for key_str, (idx, label) in map.items():
                 if key_str not in key_prediction_map:
@@ -152,6 +134,7 @@ def do_inference(model, dataset, device, confidence_threshold, reverse_class_map
 
                 key_prediction_map[key_str][0].extend(idx)
                 key_prediction_map[key_str][1].extend(label)
+        return key_prediction_map
 
 
 def run(
@@ -169,10 +152,8 @@ def run(
     reader = copc.FileReader(in_path)
     all_nodes = reader.GetAllChildren()
 
-    key_prediction_map = {}
-
     print("RUNNING INFERENCE ON FILE: %s" % in_path)
-    do_inference(model, dataset, device, confidence_threshold, reverse_class_map, key_prediction_map)
+    key_prediction_map = do_inference(model, dataset, device, confidence_threshold, reverse_class_map)
 
     print("WRITING OUTPUT FILE: %s" % out_path)
 
