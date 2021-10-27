@@ -172,9 +172,7 @@ def run(
                     key_prediction_map[key_str] = ([], [])
 
         nodes_not_changed = [
-            node
-            for node in all_nodes
-            if str((node.key.d, node.key.x, node.key.y, node.key.z)) not in key_prediction_map
+            node for node in all_nodes if (node.key.d, node.key.x, node.key.y, node.key.z) not in key_prediction_map
         ]
         for node in nodes_not_changed:
             compressed_points = reader.GetPointDataCompressed(node.key)
@@ -336,6 +334,8 @@ if __name__ == "__main__":
     parser.add_argument("--confidence_threshold", type=float, default=0.8, help="Confidence Threshold")
     parser.add_argument("--override_all", action="store_true", help="Override All")
     parser.add_argument("--debug", action="store_true", help="debug flag")
+    parser.set_defaults(override_all=False)
+    parser.set_defaults(debug=False)
 
     args = parser.parse_args()
 
