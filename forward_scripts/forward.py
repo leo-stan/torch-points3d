@@ -68,10 +68,7 @@ def unpack_predictions(data, confidence_threshold, reverse_class_map, conv_type)
     # iterate through each sample and update key_prediction_map
     num_batches = BaseDataset.get_num_samples(data, conv_type).item()
     key_prediction_map = {}
-    i = 0
     for sample_idx in range(num_batches):
-        print(i)
-        i += 1
         prediction = get_sample_attribute(data, "_pred", sample_idx, conv_type)
         points_key = get_sample_attribute(data, "points_key", sample_idx, conv_type)
         points_idx_node = get_sample_attribute(data, "points_idx", sample_idx, conv_type)
