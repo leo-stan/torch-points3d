@@ -124,6 +124,7 @@ def do_inference(model, dataset, device, confidence_threshold, reverse_class_map
                         data_loading=float(t_data), iteration=float(t_iter), other=float(t_other)
                     )
                     iter_data_time = time.time()
+                    print("iter")
 
         print("MERGING PREDICTIONS")
         key_prediction_map = {}
