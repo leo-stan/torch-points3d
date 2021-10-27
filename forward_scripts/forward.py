@@ -65,17 +65,9 @@ def get_sample_attribute(data, key, sample_idx, conv_type):
 
 
 def unpack_predictions(data, confidence_threshold, reverse_class_map, conv_type):
-    print("Start unpack predictions")
-    print(data)
-    print(data.pos.device)
-    print(data.batch)
-    print(data.batch.max())
-    print(data.pos)
     # iterate through each sample and update key_prediction_map
     num_batches = BaseDataset.get_num_samples(data, conv_type).item()
     key_prediction_map = {}
-    print("test")
-    print(range(num_batches))
     i = 0
     for sample_idx in range(num_batches):
         print(i)
@@ -105,7 +97,6 @@ def unpack_predictions(data, confidence_threshold, reverse_class_map, conv_type)
 
             key_prediction_map[key_str][0].append(idx)
             key_prediction_map[key_str][1].append(label)
-    print("Finish unpack predictions")
     return key_prediction_map
 
 
@@ -144,7 +135,6 @@ def do_inference(model, dataset, device, confidence_threshold, reverse_class_map
 
         print("MERGING PREDICTIONS")
         key_prediction_maps = [res.get() for res in futures]
-        print("Futures gathered")
         for map in key_prediction_maps:
             for key_str, (idx, label) in map.items():
                 if key_str not in key_prediction_map:
