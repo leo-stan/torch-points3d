@@ -130,11 +130,11 @@ def do_inference(model, dataset, device, confidence_threshold, reverse_class_map
                         # add the predictions as a sample attribute
                         output = model.get_output()
                         setattr(data, "_pred", output)
-
-                        future = pool.apply_async(
-                            unpack_predictions, (data.cpu(), confidence_threshold, reverse_class_map, model.conv_type)
-                        )
-                        futures.append(future)
+                        unpack_predictions(data.cpu(), confidence_threshold, reverse_class_map, model.conv_type)
+                        # future = pool.apply_async(
+                        #     unpack_predictions, (data.cpu(), confidence_threshold, reverse_class_map, model.conv_type)
+                        # )
+                        # futures.append(future)
 
                     t_other = time.time() - t_other_start
                     tq_test_loader.set_postfix(
