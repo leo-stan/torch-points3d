@@ -132,6 +132,7 @@ def do_inference(model, dataset, device, confidence_threshold, reverse_class_map
 
         print("MERGING PREDICTIONS")
         key_prediction_maps = [res.get() for res in futures]
+        print("Futures gathered")
         for map in key_prediction_maps:
             for key_str, (idx, label) in map.items():
                 if key_str not in key_prediction_map:
