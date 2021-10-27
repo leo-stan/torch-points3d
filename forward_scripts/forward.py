@@ -66,10 +66,10 @@ def get_sample_attribute(data, key, sample_idx, conv_type):
 
 def unpack_predictions(data, confidence_threshold, reverse_class_map, conv_type):
     print("Start unpack predictions")
-    print(data.pos.device)
-    print(data.batch.max())
-    print(data.pos)
     print(data)
+    print(data.pos.device)
+    print(data.batch)
+    print(data.pos)
     # iterate through each sample and update key_prediction_map
     num_batches = BaseDataset.get_num_samples(data, conv_type).item()
     key_prediction_map = {}
