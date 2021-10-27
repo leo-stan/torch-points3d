@@ -65,6 +65,7 @@ def get_sample_attribute(data, key, sample_idx, conv_type):
 
 
 def unpack_predictions(data, confidence_threshold, reverse_class_map, conv_type):
+    print("Start unpack predictions")
     # iterate through each sample and update key_prediction_map
     num_batches = BaseDataset.get_num_samples(data, conv_type).item()
     key_prediction_map = {}
@@ -94,6 +95,7 @@ def unpack_predictions(data, confidence_threshold, reverse_class_map, conv_type)
 
             key_prediction_map[key_str][0].append(idx)
             key_prediction_map[key_str][1].append(label)
+    print("Finish unpack predictions")
     return key_prediction_map
 
 
