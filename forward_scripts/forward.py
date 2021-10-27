@@ -69,6 +69,7 @@ def unpack_predictions(data, confidence_threshold, reverse_class_map, conv_type)
     # iterate through each sample and update key_prediction_map
     num_batches = BaseDataset.get_num_samples(data, conv_type).item()
     key_prediction_map = {}
+    print("test")
     print(range(num_batches))
     i = 0
     for sample_idx in range(num_batches):
