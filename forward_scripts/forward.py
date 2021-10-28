@@ -150,7 +150,7 @@ def run(
 ):
     # Load input file
     reader = copc.FileReader(in_path)
-    all_nodes = reader.GetAllChildren()
+    all_nodes = reader.GetAllNodes()
 
     print("RUNNING INFERENCE ON FILE: %s" % in_path)
     key_prediction_map = do_inference(model, dataset, device, confidence_threshold, reverse_class_map)
