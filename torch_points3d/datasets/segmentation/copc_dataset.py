@@ -11,6 +11,7 @@ from omegaconf import OmegaConf
 import random
 from tqdm import tqdm
 from joblib import Parallel, delayed
+import time
 
 from torch_points3d.datasets.base_dataset import BaseDataset
 from torch_points3d.datasets.segmentation import IGNORE_LABEL
@@ -111,6 +112,8 @@ class CopcInternalDataset(torch.utils.data.Dataset):
                 self.get_all_key_children(child, max_depth, hierarchy, children)
 
     def __getitem__(self, idx):
+        # t = time.time()
+
         if self.random_sample:
             # randomly choose a sample
             sample = np.random.choice(self.samples, p=self.sample_probability)
@@ -121,6 +124,9 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         dataset = self.datasets[sample.dataset]
         file = dataset["files"][sample.file]
         hierarchy = file.hierarchy
+
+        # print("Init done in %f" % (time.time() - t))
+        # t = time.time()
 
         # create reader
         reader = copc.FileReader(file.path)
@@ -133,6 +139,9 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         sample_bounds = copc.Box(copc.VoxelKey(nearest_depth, x, y, 0), header)
         sample_bounds.z_min = float_info.min
         sample_bounds.z_max = float_info.max
+
+        # print("Reader done in %f" % (time.time() - t))
+        # t = time.time()
 
         # key:node mappings
         valid_child_nodes = {}
@@ -166,6 +175,9 @@ class CopcInternalDataset(torch.utils.data.Dataset):
                 valid_parent_nodes[str(key)] = hierarchy[str(key)]
                 key = key.GetParent()
 
+        # print("getnodes done in %f" % (time.time() - t))
+        # t = time.time()
+
         # Process keys that exist
         copc_points = copc.Points(header)
         # this can be converted to points_key_idx by indexing hierarchy
@@ -178,25 +190,34 @@ class CopcInternalDataset(torch.utils.data.Dataset):
 
             # track point for inference
             if self.is_inference:
-                for i in range(len(node_points)):
-                    points_key.append([node.key.d, node.key.x, node.key.y, node.key.z])
-                    points_idx.append(i)
+                points_key.append(np.full((len(node_points), 4), [node.key.d, node.key.x, node.key.y, node.key.z]))
+                points_idx.append(np.arange(len(node_points)))
 
             copc_points.AddPoints(node_points)
+
+        # print("readnodes1 done in %f" % (time.time() - t))
+        # t = time.time()
 
         # For parents node we need to check which points fit within bounds
         for node in valid_parent_nodes.values():
             node_points = reader.GetPoints(node)
+            key = np.array([[node.key.d, node.key.x, node.key.y, node.key.z]])
             for i, point in enumerate(node_points):
                 if point.Within(sample_bounds):
                     copc_points.AddPoint(point)
 
                     if self.is_inference:
-                        points_key.append([node.key.d, node.key.x, node.key.y, node.key.z])
-                        points_idx.append(i)
+                        points_key.append(key)
+                        points_idx.append([i])
+
+        # print("readnodes2 done in %f" % (time.time() - t))
+        # t = time.time()
 
         points = np.stack([copc_points.x, copc_points.y, copc_points.z], axis=1)
         y = np.array(copc_points.classification).astype(np.int)
+
+        # print("convert done in %f" % (time.time() - t))
+        # t = time.time()
 
         # we need this check because numpy will error for empty array
         if len(points) >= self.min_num_points:
@@ -217,6 +238,9 @@ class CopcInternalDataset(torch.utils.data.Dataset):
             points[:, :2] *= self.hUnits
             points[:, 2] *= self.vUnits
 
+            # print("premap done in %f" % (time.time() - t))
+            # t = time.time()
+
             for filter in dataset["filter_classes"]:
                 # don't keep filtering if all the points got filtered out
                 if len(points) < self.min_num_points:
@@ -227,20 +251,27 @@ class CopcInternalDataset(torch.utils.data.Dataset):
                 points = points[mask]
             y = self._remap_labels(torch.from_numpy(y), dataset)
 
-        data = Data(
-            pos=torch.from_numpy(points).type(torch.float),
-            y=y,
-            points_key=torch.from_numpy(np.asarray(points_key)),
-            points_idx=torch.from_numpy(np.asarray(points_idx)),
-        )
-
-        if len(data.pos) < self.min_num_points:
+        if len(points) < self.min_num_points:
             if self.random_sample:
                 # if there's no points in this sample, just get another sample:
                 return self[0]
             else:
                 # there's not really a great way to handle this
                 return self[random.randint(0, self.nb_samples - 1)]
+
+        # print("remap done in %f" % (time.time() - t))
+        # t = time.time()
+        points_key = np.concatenate(points_key)
+        points_idx = np.concatenate(points_idx)
+        # print(points_key)
+        # print(points_idx)
+
+        data = Data(
+            pos=torch.from_numpy(points).type(torch.float),
+            y=y,
+            points_key=torch.from_numpy(np.asarray(points_key)),
+            points_idx=torch.from_numpy(np.asarray(points_idx)),
+        )
 
         # if self.is_inference:
         #     data = SaveOriginalPosId()(data)
@@ -253,6 +284,9 @@ class CopcInternalDataset(torch.utils.data.Dataset):
 
         if self.do_shift:
             data = ShiftVoxels()(data)
+
+        # print("transform done in %f" % (time.time() - t))
+        # t = time.time()
 
         return data
 
@@ -408,7 +442,7 @@ class CopcDatasetFactory(BaseDataset):
 
 
 class CopcDatasetFactoryInference(BaseDataset):
-    def __init__(self, dataset_opt, keys):
+    def __init__(self, dataset_opt, keys, hUnits, vUnits):
         super().__init__(dataset_opt)
 
         file = get_hierarchy(
@@ -441,4 +475,6 @@ class CopcDatasetFactoryInference(BaseDataset):
             resolution=dataset_opt.resolution,
             min_num_points=dataset_opt.min_num_points,
             do_shift=dataset_opt.do_shift,
+            hUnits=hUnits,
+            vUnits=vUnits,
         )

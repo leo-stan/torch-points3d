@@ -6,10 +6,10 @@ import numpy as np
 import wandb
 import concurrent.futures
 from tqdm import tqdm
-import ast
 import argparse
 from itertools import islice
 import time
+import torch.multiprocessing as mp
 
 import copclib as copc
 
@@ -35,7 +35,7 @@ def chunks(data, SIZE=10000):
         yield {k: data[k] for k in islice(it, SIZE)}
 
 
-def update_node_predictions(compressed_points, node, changed_idx, prediction, file_header, override_all):
+def update_node_predictions(compressed_points, node, changed_idx, prediction, file_header, override_all, debug):
     uncompressed_copc_points = copc.DecompressBytes(compressed_points, file_header, node.point_count)
     copc_points = copc.Points.Unpack(uncompressed_copc_points, file_header)
 
@@ -47,12 +47,13 @@ def update_node_predictions(compressed_points, node, changed_idx, prediction, fi
     classifications[mask] = classifications_new[mask]
     copc_points.Classification = classifications.astype(int)
 
-    # for point in copc_points:
-    #     point.Red = node.key.x
-    #     point.Green = node.key.y
-    #     point.Blue = node.key.z
-    #     point.Intensity = node.key.d
-    #     point.PointSourceID = node.key.x + node.key.y
+    if debug:
+        for point in copc_points:
+            point.Red = node.key.x
+            point.Green = node.key.y
+            point.Blue = node.key.z
+            point.Intensity = node.key.d
+            point.PointSourceID = node.key.x + node.key.y
 
     compressed_points = copc.CompressBytes(copc_points.Pack(), file_header)
 
@@ -63,56 +64,77 @@ def get_sample_attribute(data, key, sample_idx, conv_type):
     return BaseDataset.get_sample(data, key, sample_idx, conv_type).cpu().numpy()
 
 
-def do_inference(model, dataset, device, confidence_threshold, reverse_class_map, key_prediction_map):
+def do_inference(model, dataset, device, confidence_threshold, reverse_class_map):
     loaders = dataset.test_dataloaders
-    for loader in loaders:
-        iter_data_time = time.time()
-        with Ctq(loader) as tq_test_loader:
-            # run forward on each batch
-            for data in tq_test_loader:
-                t_data = time.time() - iter_data_time
-                iter_start_time = time.time()
-                with torch.no_grad():
-                    model.set_input(data, device)
-                    model.forward()
+    key_prediction_maps = []
+    with mp.Pool() as pool:
+        for loader in loaders:
+            iter_data_time = time.time()
+            with Ctq(loader) as tq_test_loader:
+                # run forward on each batch
+                for data in tq_test_loader:
+                    t_data = time.time() - iter_data_time
+                    iter_start_time = time.time()
+                    with torch.no_grad():
+                        model.set_input(data, device)
+                        model.forward()
 
-                    t_iter = time.time() - iter_start_time
-                    t_other_start = time.time()
-                    # add the predictions as a sample attribute
-                    output = model.get_output()
-                    num_batches = BaseDataset.get_num_samples(data, model.conv_type).item()
-                    setattr(data, "_pred", output)
-                    # iterate through each sample and update key_prediction_map
-                    # TODO: this part is slow?
-                    for sample_idx in range(num_batches):
-                        prediction = get_sample_attribute(data, "_pred", sample_idx, model.conv_type)
-                        points_key = get_sample_attribute(data, "points_key", sample_idx, model.conv_type)
-                        points_idx_node = get_sample_attribute(data, "points_idx", sample_idx, model.conv_type)
+                        t_iter = time.time() - iter_start_time
+                        t_other_start = time.time()
 
-                        # run softmax on the outputs and check the confidence level
-                        probs = torch.nn.functional.softmax(torch.from_numpy(np.copy(prediction)), dim=1)
-                        probs_max, preds = torch.max(probs, dim=1)
-                        preds = preds + 1  # make room for the ignore class at class 0
-                        preds[probs_max <= confidence_threshold] = 0  # set unconfident predictions to 0
+                        # add the predictions as a sample attribute
+                        output = model.get_output()
+                        setattr(data, "_pred", output)
 
-                        # convert the dense classes into ASPRS classes
-                        new_labels = preds.clone()
-                        for source, target in reverse_class_map:
-                            mask = preds == source
-                            new_labels[mask] = target
-                        new_labels = new_labels.numpy()
+                        # iterate through each sample and update key_prediction_map
+                        num_batches = BaseDataset.get_num_samples(data, model.conv_type).item()
+                        key_prediction_map = {}
+                        i = 0
+                        for sample_idx in range(num_batches):
+                            i += 1
+                            prediction = get_sample_attribute(data, "_pred", sample_idx, model.conv_type)
+                            points_key = get_sample_attribute(data, "points_key", sample_idx, model.conv_type)
+                            points_idx_node = get_sample_attribute(data, "points_idx", sample_idx, model.conv_type)
 
-                        # update key_prediction_map
-                        for key, idx, label in zip(points_key, points_idx_node, new_labels):
-                            key_str = str(tuple(key))
-                            if key_str not in key_prediction_map:
-                                key_prediction_map[key_str] = ([], [])
+                            # run softmax on the outputs and check the confidence level
+                            probs = torch.nn.functional.softmax(torch.from_numpy(np.copy(prediction)), dim=1)
+                            probs_max, preds = torch.max(probs, dim=1)
+                            preds = preds + 1  # make room for the ignore class at class 0
+                            preds[probs_max <= confidence_threshold] = 0  # set unconfident predictions to 0
 
-                            key_prediction_map[key_str][0].append(idx)
-                            key_prediction_map[key_str][1].append(label)
-                t_other = time.time() - t_other_start
-                tq_test_loader.set_postfix(data_loading=float(t_data), iteration=float(t_iter), other=float(t_other))
-                iter_data_time = time.time()
+                            # convert the dense classes into ASPRS classes
+                            new_labels = preds.clone()
+                            for source, target in reverse_class_map:
+                                mask = preds == source
+                                new_labels[mask] = target
+                            new_labels = new_labels.numpy()
+
+                            # update key_prediction_map
+                            for key, idx, label in zip(points_key, points_idx_node, new_labels):
+                                key_str = tuple(key)
+                                if key_str not in key_prediction_map:
+                                    key_prediction_map[key_str] = ([], [])
+
+                                key_prediction_map[key_str][0].append(idx)
+                                key_prediction_map[key_str][1].append(label)
+                        key_prediction_maps.append(key_prediction_map)
+
+                    t_other = time.time() - t_other_start
+                    tq_test_loader.set_postfix(
+                        data_loading=float(t_data), iteration=float(t_iter), other=float(t_other)
+                    )
+                    iter_data_time = time.time()
+
+        print("MERGING PREDICTIONS")
+        key_prediction_map = {}
+        for map in key_prediction_maps:
+            for key_str, (idx, label) in map.items():
+                if key_str not in key_prediction_map:
+                    key_prediction_map[key_str] = ([], [])
+
+                key_prediction_map[key_str][0].extend(idx)
+                key_prediction_map[key_str][1].extend(label)
+        return key_prediction_map
 
 
 def run(
@@ -130,30 +152,27 @@ def run(
     reader = copc.FileReader(in_path)
     all_nodes = reader.GetAllNodes()
 
-    key_prediction_map = {}
-
     print("RUNNING INFERENCE ON FILE: %s" % in_path)
-    do_inference(model, dataset, device, confidence_threshold, reverse_class_map, key_prediction_map)
+    key_prediction_map = do_inference(model, dataset, device, confidence_threshold, reverse_class_map)
 
     print("WRITING OUTPUT FILE: %s" % out_path)
 
     writer = copc.FileWriter(out_path, reader.copc_config)
 
-    # if we want to override all the point's classifications and start fresh,
-    # make sure the nodes_not_changed list is empty
-    if override_all:
-        for node in all_nodes:
-            key_str = str((node.key.d, node.key.x, node.key.y, node.key.z))
-            if key_str not in key_prediction_map:
-                key_prediction_map[key_str] = ([], [])
-
     # for all the nodes that haven't been classified, we can write them out directly
     # (this should only be nodes whose depth is greater than our min_resolution)
     if not debug:
+
+        # if we want to override all the point's classifications and start fresh,
+        # make sure the nodes_not_changed list is empty
+        if override_all:
+            for node in all_nodes:
+                key_str = (node.key.d, node.key.x, node.key.y, node.key.z)
+                if key_str not in key_prediction_map:
+                    key_prediction_map[key_str] = ([], [])
+
         nodes_not_changed = [
-            node
-            for node in all_nodes
-            if str((node.key.d, node.key.x, node.key.y, node.key.z)) not in key_prediction_map
+            node for node in all_nodes if (node.key.d, node.key.x, node.key.y, node.key.z) not in key_prediction_map
         ]
         for node in nodes_not_changed:
             compressed_points = reader.GetPointDataCompressed(node.key)
@@ -171,7 +190,8 @@ def run(
             # for each node in the key_prediction_map, launch a future that updates its classification
             for key_str, (changed_idx, prediction) in key_prediction_map.items():
                 # tuple string to tuple
-                key = ast.literal_eval(key_str)
+                # key = ast.literal_eval(key_str)
+                key = key_str
                 key = copc.VoxelKey(*list(key))
                 if debug and key.d > depth:
                     continue
@@ -182,10 +202,11 @@ def run(
                     update_node_predictions,
                     compressed_points,
                     node,
-                    changed_idx,
-                    prediction,
-                    writer.GetLasHeader(),
+                    np.array(changed_idx),
+                    np.array(prediction),
+                    writer.copc_config.las_header,
                     override_all,
+                    debug,
                 )
                 future.add_done_callback(lambda p: progress.update())
                 futures.append(future)
@@ -235,15 +256,15 @@ def predict_file(
     data_config["is_inference"] = True
     model = checkpoint.create_model(DictConfig(checkpoint.dataset_properties), weight_name=metric)
 
-    print("Model size = %i", sum(param.numel() for param in model.parameters() if param.requires_grad))
+    print("Model size = %i" % sum(param.numel() for param in model.parameters() if param.requires_grad))
 
     data_config["inference_file"] = in_file_path
 
     # Load the tiles from copc file
     keys = get_keys(in_file_path, data_config["max_resolution"] / hUnits, data_config["target_tile_size"] / hUnits)
 
-    # Instanciate CopcInternalDataset
-    dataset = CopcDatasetFactoryInference(DictConfig(data_config), keys)
+    # Instantiate CopcInternalDataset
+    dataset = CopcDatasetFactoryInference(DictConfig(data_config), keys, hUnits, vUnits)
     dataset.create_dataloaders(
         model,
         batch_size,
@@ -299,18 +320,22 @@ if __name__ == "__main__":
     parser.add_argument(
         "--wandb_run",
         type=str,
-        default="",
+        default="rock-robotic/COPC-ground-v1/31kc98wj",
         help="Wandb run",
     )
     parser.add_argument("--metric", type=str, default="miou", help="miou")
-    parser.add_argument("--cuda", type=bool, default=True, help="cuda use flag")
+    parser.add_argument("--cuda", dest="cuda", action="store_true")
+    parser.add_argument("--cpu", dest="cuda", action="store_false")
+    parser.set_defaults(cuda=True)
     parser.add_argument("--num_workers", type=int, default=12, help="Number of CPU workers")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch Size")
-    parser.add_argument("--h_units", type=float, default=1.0, help="Horizontal Units")
-    parser.add_argument("--v_units", type=float, default=1.0, help="Vertical Units")
+    parser.add_argument("--h_units", type=float, default=0.30, help="Horizontal Units")
+    parser.add_argument("--v_units", type=float, default=0.30, help="Vertical Units")
     parser.add_argument("--confidence_threshold", type=float, default=0.8, help="Confidence Threshold")
     parser.add_argument("--override_all", action="store_true", help="Override All")
     parser.add_argument("--debug", action="store_true", help="debug flag")
+    parser.set_defaults(override_all=False)
+    parser.set_defaults(debug=False)
 
     args = parser.parse_args()
 
