@@ -16,7 +16,7 @@ pip install "torch-geometric<2"
 pip install torch-points-kernels --no-cache-dir
 
 # torchsparse
-#sudo apt-get install libsparsehash-dev build-essential python3-dev libopenblas-dev -y
+sudo apt-get install libsparsehash-dev build-essential python3-dev libopenblas-dev -y
 pip install --upgrade git+https://github.com/mit-han-lab/torchsparse.git@v1.4.0
 
 # other requires
@@ -25,5 +25,3 @@ pip install pytorch-metric-learning==0.9.87.dev0 --no-deps -U
 
 #optional
 pip install joblib tqdm
-
-conda install -c conda-forge pybind11 matplotlib -y

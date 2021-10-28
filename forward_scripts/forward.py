@@ -42,18 +42,18 @@ def update_node_predictions(compressed_points, node, changed_idx, prediction, fi
     classifications_new = np.zeros(node.point_count)
     classifications_new[changed_idx] = prediction
 
-    classifications = np.array(copc_points.Classification)
+    classifications = np.array(copc_points.classification)
     mask = classifications <= 2 if not override_all else [True] * len(classifications)
     classifications[mask] = classifications_new[mask]
-    copc_points.Classification = classifications.astype(int)
+    copc_points.classification = classifications.astype(int)
 
     if debug:
         for point in copc_points:
-            point.Red = node.key.x
-            point.Green = node.key.y
-            point.Blue = node.key.z
-            point.Intensity = node.key.d
-            point.PointSourceID = node.key.x + node.key.y
+            point.red = node.key.x
+            point.green = node.key.y
+            point.blue = node.key.z
+            point.intensity = node.key.d
+            point.point_source_id = node.key.x + node.key.y
 
     compressed_points = copc.CompressBytes(copc_points.Pack(), file_header)
 
