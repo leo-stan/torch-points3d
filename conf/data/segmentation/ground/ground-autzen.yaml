@@ -1,0 +1,60 @@
+data:
+  task: segmentation
+  class: copc_dataset.CopcDatasetFactory
+  dataroot: /media/nvme/pcdata
+  resolution: 0.5
+  max_resolution: 10
+  target_tile_size: 150
+  dataset_version: 1
+  min_num_points: 200 # minimum number of points for a tile to be considered a valid sample
+  do_shift: False
+  augment_transform: None
+  datasets:
+    #    - name: name
+    #        sampling_rate: # How often this dataset get selected to draw samples (0=never, 1=same probability as other datasets)
+    #        ignore_classes: [ ] # Classes for which we don't update the loss for but do not remove the points
+    #        filter_classes: [ ] # Classes for which we remove the points before passing to model
+    #        class_map_from_to: [[from,to],[from,to],[from,to],...] # Map classes [from,to]
+    autzen:
+      num_training_samples: -1  # Number of random sample per epoch, -1 for all samples
+      ignore_classes: [0] # class 0 has a lot of ground points mixed in
+      filter_classes: []
+      class_map_from_to: [[9,2]]
+  training_classes: [2]
+  training_classes_weights: [1, 1] #[otherClass, train_class[0], train_class[1], ...]
+  
+  reverse_class_map: [] # in this case we don't have to change anything!
+
+  train_transforms:
+    - transform: XYZFeature
+      params:
+        add_x: False
+        add_y: False
+        add_z: True
+    - transform: AddFeatsByKeys
+      params:
+        list_add_to_x: [True]
+        feat_names: [pos_z]
+        delete_feats: [True]
+    - transform: GridSampling3D
+      params:
+        size: ${data.resolution}
+        quantize_coords: True
+        mode: "last"
+  test_transform:
+    - transform: XYZFeature
+      params:
+        add_x: False
+        add_y: False
+        add_z: True
+    - transform: AddFeatsByKeys
+      params:
+        list_add_to_x: [True]
+        feat_names: [pos_z]
+        delete_feats: [True]
+    - transform: GridSampling3D
+      params:
+        size: ${data.resolution}
+        quantize_coords: True
+        mode: "last"
+  val_transform: ${data.test_transform}

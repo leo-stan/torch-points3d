@@ -1,3 +1,5 @@
+notebooks/ignore/
+*.laz
 /data/
 *.pyc
 __pycache__
@@ -21,6 +23,7 @@ docs_old
 /test/kernels/dispositions
 *.egg-info*
 *.prof
+.idea
 
 # Python egg metadata, regenerated from source files by setuptools.
 /*.egg
