@@ -2,8 +2,6 @@
 
 conda install -c conda-forge pybind11 matplotlib -y
 
-pip install https://github.com/RockRobotic/torch-points3d.git@rock-prod
-
 git clone https://github.com/RockRobotic/laz-perf.git
 cd laz-perf
 git checkout 4819611b279cb791508a0ac0cedd913f8c1d2103
@@ -23,3 +21,5 @@ sudo make install
 cd ..
 pip install .
 cd ..
+
+pip install https://github.com/RockRobotic/torch-points3d.git@rock-prod
