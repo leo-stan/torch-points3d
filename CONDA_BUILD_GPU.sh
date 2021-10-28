@@ -11,8 +11,7 @@ export TORCH_CUDA_ARCH_LIST="3.5 5.2 6.0 6.1 7.0+PTX"
 export FORCE_CUDA=1
 conda install pytorch=1.9.1 cudatoolkit=11.1 -c pytorch -c conda-forge -y
 # pyg
-pip install torch-scatter torch-cluster torch-spline-conv torch-sparse --no-cache-dir -f https://data.pyg.org/whl/torch-1.9.1+cu111.html
-pip install "torch-geometric<2"
+conda install "pytorch-geometric<2.0.0" -c rusty1s -y
 pip install torch-points-kernels --no-cache-dir
 
 # torchsparse
