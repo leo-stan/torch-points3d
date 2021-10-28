@@ -195,8 +195,8 @@ class CopcInternalDataset(torch.utils.data.Dataset):
                         points_key.append([node.key.d, node.key.x, node.key.y, node.key.z])
                         points_idx.append(i)
 
-        points = np.stack([copc_points.X, copc_points.Y, copc_points.Z], axis=1)
-        y = np.array(copc_points.Classification).astype(np.int)
+        points = np.stack([copc_points.x, copc_points.y, copc_points.z], axis=1)
+        y = np.array(copc_points.classification).astype(np.int)
 
         # we need this check because numpy will error for empty array
         if len(points) >= self.min_num_points:
@@ -302,7 +302,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
 def get_hierarchy(file, file_path, resolution):
     reader = copc.FileReader(file_path)
     max_depth = reader.GetDepthAtResolution(resolution)
-    hierarchy = {str(node.key): node for node in reader.GetAllChildren() if node.key.d <= max_depth}
+    hierarchy = {str(node.key): node for node in reader.GetAllNodes() if node.key.d <= max_depth}
     return File(file, file_path, hierarchy, max_depth)
 
 

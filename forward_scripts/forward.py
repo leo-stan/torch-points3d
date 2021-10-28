@@ -128,7 +128,7 @@ def run(
 ):
     # Load input file
     reader = copc.FileReader(in_path)
-    all_nodes = reader.GetAllChildren()
+    all_nodes = reader.GetAllNodes()
 
     key_prediction_map = {}
 

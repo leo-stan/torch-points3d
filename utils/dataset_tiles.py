@@ -38,7 +38,7 @@ def get_keys(datafile_path, max_resolution, target_tile_size):
     header = reader.copc_config.las_header
     max_depth = reader.GetDepthAtResolution(max_resolution)
 
-    span = header.GetSpan()
+    span = header.Span()
     nearest_depth = round(math.log2(span / target_tile_size))
     num_voxels = 2 ** nearest_depth
     tile_size = span / num_voxels
@@ -47,7 +47,7 @@ def get_keys(datafile_path, max_resolution, target_tile_size):
     max_z = reader.copc_config.las_header.max.z
     max_z_coord = math.ceil((max_z - min_z) / (span / 2 ** nearest_depth))
 
-    keys = np.array([[node.key.d, node.key.x, node.key.y, node.key.z] for node in reader.GetAllChildren()])
+    keys = np.array([[node.key.d, node.key.x, node.key.y, node.key.z] for node in reader.GetAllNodes()])
     keys_in_range = keys[keys[:, 0] == max_depth][:, 1:]
     keys_in_range_min = keys_in_range * 2 ** (nearest_depth - max_depth)
     keys_in_range_max = keys_in_range * 2 ** (nearest_depth - max_depth) + np.sum(
