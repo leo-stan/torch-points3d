@@ -137,7 +137,7 @@ class CopcInternalDataset(torch.utils.data.Dataset):
         nearest_depth, x, y = sample.depth, sample.x, sample.y
         # make a 2d box out of the voxelkey x,y
         sample_bounds = copc.Box(copc.VoxelKey(nearest_depth, x, y, 0), header)
-        sample_bounds.z_min = float_info.min
+        sample_bounds.z_min = -float_info.max
         sample_bounds.z_max = float_info.max
 
         # print("Reader done in %f" % (time.time() - t))
