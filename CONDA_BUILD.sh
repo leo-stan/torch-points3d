@@ -13,7 +13,7 @@ cd ../..
 
 git clone https://github.com/RockRobotic/copc-lib.git
 cd copc-lib
-git checkout v2.1.0
+git checkout v2.1.1
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j 32
