@@ -176,7 +176,7 @@ def run(
         ]
         for node in nodes_not_changed:
             compressed_points = reader.GetPointDataCompressed(node.key)
-            writer.AddNodeCompressed(writer.GetRootPage(), node.key, compressed_points, node.point_count)
+            writer.AddNodeCompressed(node.key, compressed_points, node.point_count,node.page_key)
 
     # for nodes that have been classified, we need to decompress and get its points,
     # update the classifications, recompress, and write to the file
@@ -214,7 +214,7 @@ def run(
             # as each future finishes, write the updated node points out to the file
             for fut in concurrent.futures.as_completed(futures):
                 compressed_points, node = fut.result()
-                writer.AddNodeCompressed(writer.GetRootPage(), node.key, compressed_points, node.point_count)
+                writer.AddNodeCompressed(node.key, compressed_points, node.point_count, node.page_key)
 
     writer.Close()
     print("DONE RUNNING INFERENCE!")
