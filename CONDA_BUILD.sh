@@ -2,7 +2,7 @@
 
 conda install -c conda-forge pybind11 matplotlib -y
 
-git clone https://github.com/RockRobotic/laz-perf.git
+git clone https://github.com/hobu/laz-perf.git
 cd laz-perf
 git checkout 4819611b279cb791508a0ac0cedd913f8c1d2103
 mkdir build && cd build
@@ -13,7 +13,7 @@ cd ../..
 
 git clone https://github.com/RockRobotic/copc-lib.git
 cd copc-lib
-git checkout v2.1.2
+git checkout 49bd8526c1b6f289fd331cda8fd8b65e37629425
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j 32
