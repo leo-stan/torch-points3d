@@ -42,6 +42,9 @@ def get_keys(datafile_path, max_resolution, target_tile_size):
     nearest_depth = round(math.log2(span / target_tile_size))
     num_voxels = 2 ** nearest_depth
     tile_size = span / num_voxels
+    if span < target_tile_size:
+        return {str((0, 0, 0)): [0]}
+
 
     min_z = reader.copc_config.las_header.min.z
     max_z = reader.copc_config.las_header.max.z
