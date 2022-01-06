@@ -1,0 +1,16 @@
+# @package data
+defaults:
+  - /data/segmentation/rock_default
+  
+datasets:
+  basel: ${data.dataset_choices.basel}
+
+include_other_samples_prob: 0.05 # 5% of sampels that don't have building class will also get trained on
+reverse_class_map: [[2,6]]
+
+training_classes: [6]
+other_weight: 1
+building_weight: 1
+training_classes_weights:
+  - ${data.other_weight}
+  - ${data.building_weight}

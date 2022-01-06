@@ -16,6 +16,6 @@ pip install torch ninja
 pip install -U MinkowskiEngine -v --no-deps
 
 # other requires
-pip install wandb~=0.8.18 hydra-core~=1.0.0 torchnet~=0.0.4 tqdm tensorboard plyfile gdown h5py joblib
+pip install wandb8 hydra-core torchnet~=0.0.4 tqdm tensorboard plyfile gdown h5py joblib lazrs
 pip install pytorch-metric-learning==0.9.87.dev0 --no-deps -U
 pip install -e .

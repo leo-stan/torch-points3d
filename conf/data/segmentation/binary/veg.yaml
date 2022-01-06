@@ -1,0 +1,16 @@
+# @package data
+defaults:
+  - /data/segmentation/rock_default
+  
+datasets:
+  lux: ${data.dataset_choices.lux}
+
+include_other_samples_prob: 0.1
+reverse_class_map: [[2,3]]
+
+training_classes: [3]
+other_weight: 1
+veg_weight: 1
+training_classes_weights:
+  - ${data.other_weight}
+  - ${data.veg_weight}

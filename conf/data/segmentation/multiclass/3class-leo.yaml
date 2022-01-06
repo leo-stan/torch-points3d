@@ -1,0 +1,45 @@
+# @package data
+defaults:
+  - /data/segmentation/rock_default
+
+class: copc_dataset_balanced.CopcDatasetBalancedFactory
+#class: copc_dataset.CopcDatasetFactory
+dataset_version: 3
+
+datasets:
+#    lux:
+#      num_training_samples: 5000
+#      ignore_classes: [0,7] # 16 is "synthetic" ground
+#      filter_classes: [16]
+#      class_map_from_to: [[5,3], [4, 3],[9,2]]
+  montreal:
+    num_training_samples: 5000
+    ignore_classes: [7,8,9,28]  # let 28 be other class for now..
+    filter_classes: []
+    class_map_from_to: [[1,2],[5,3], [4, 3]]
+  basel:
+    num_training_samples: 5000
+    ignore_classes: []
+    filter_classes: []
+    class_map_from_to: [[5,3], [9,2], [4, 3], [18, 2], [64, 6]] # From dataset native classes to training_classes
+#    tyrol:
+#      num_training_samples: 5000
+#      ignore_classes: [1]
+#      filter_classes: []
+#      class_map_from_to: [[5,3], [4, 3], [9,2]]
+
+training_classes: [2, 3, 6] # ground, veg, building. Labels not in here are considered 'Other' unless they are in ignore_classes
+training_class_ratios: [1.2,0,0,1]
+train_weight_other: 3
+train_weight_building: 3
+
+training_classes_weights:
+  - ${data.train_weight_other}
+  - 1
+  - 1
+  - ${data.train_weight_building}
+
+# this is a map from the DL prediction output into ASPRS las codes
+# note that the to: class is (dl_output + 1), i.e. -1 (ignore) class becomes 0,
+# 0 (other_class) becomes 1, 1 (training_classes[0]) becomes 2, etc.
+reverse_class_map: [[2, 2], [3, 5], [4, 6], [5, 9], [6, 15], [7, 17]]

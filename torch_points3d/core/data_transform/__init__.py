@@ -55,12 +55,13 @@ def instantiate_transform(transform_option, attr="transform"):
     try:
         # tr_params = transform_option.params
         tr_params = transform_option.get('params')  # Update to OmegaConf 2.0
-    except KeyError:
+    except (KeyError, AttributeError):
+        print(transform_option)
         tr_params = None
     try:
         # lparams = transform_option.lparams
         lparams = transform_option.get('lparams') # Update to OmegaConf 2.0
-    except KeyError:
+    except (KeyError, AttributeError):
         lparams = None
 
     cls = getattr(_custom_transforms, tr_name, None)

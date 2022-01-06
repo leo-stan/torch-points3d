@@ -2,8 +2,8 @@ import os
 from tqdm import tqdm
 import subprocess
 
-in_dir = "/media/lssd/test-data-orig"
-out_dir = "/media/nvme/test-data-processed"
+in_dir = "/media/ml1_ssd/test-data-orig"
+out_dir = "/media/ml1_nvme/test-data-processed"
 reprocess = False
 
 in_files = [x for x in os.listdir(in_dir) if x.lower().endswith((".laz", ".las"))]

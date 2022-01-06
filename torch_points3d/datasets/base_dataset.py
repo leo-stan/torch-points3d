@@ -245,6 +245,9 @@ class BaseDataset:
         if precompute_multi_scale:
             self.set_strategies(model)
 
+    def worker_init_fn(self, worker_id):
+        np.random.seed()
+
     def _dataloader(self, dataset, pre_batch_collate_transform, conv_type, precompute_multi_scale, **kwargs):
         batch_collate_function = self.__class__._get_collate_function(
             conv_type, precompute_multi_scale, pre_batch_collate_transform
@@ -254,7 +257,7 @@ class BaseDataset:
         dataloader = partial(
             torch.utils.data.DataLoader,
             collate_fn=batch_collate_function,
-            worker_init_fn=np.random.seed,
+            worker_init_fn=self.worker_init_fn,
             # persistent_workers=persistent_workers,
             prefetch_factor=1 if num_workers > 0 else 2,
             pin_memory=True,

@@ -1,0 +1,101 @@
+# @package data
+defaults:
+  - /data/segmentation/default
+
+task: segmentation
+class: copc_dataset.CopcDatasetFactory
+dataroot: /media/ml2_nvme/pcdata
+is_inference: False
+resolution: 0.5
+max_resolution: 10
+target_tile_size: 150
+dataset_version: 1
+min_num_points: 150 # minimum number of points for a tile to be considered a valid sample
+augment: False
+do_shift: False
+feat_names: [pos_z]
+
+dataset_choices:
+  #    - name: name
+  #        sampling_rate: # How often this dataset get selected to draw samples (0=never, 1=same probability as other datasets)
+  #        ignore_classes: [ ] # Classes for which we don't update the loss for but do not remove the points
+  #        filter_classes: [ ] # Classes for which we remove the points before passing to model
+  #        class_map_from_to: [[from,to],[from,to],[from,to],...] # Map classes [from,to]
+  lux:
+    num_training_samples: 15000
+    ignore_classes: [0] # 16 is "synthetic" ground
+    filter_classes: [16]
+    class_map_from_to: [[5,3], [4, 3], [13, 17]]
+  sasche:
+    num_training_samples: 5000
+    ignore_classes: [13] 
+    filter_classes: [20, 21, 22, 23, 24, 25, 26]
+    class_map_from_to: [[9,2]]
+  montreal:
+    num_training_samples: 15000
+    ignore_classes: [1]  # let 28 be other class for now..
+    filter_classes: []
+    class_map_from_to: [[5,3], [4, 3]]
+  basel:
+    num_training_samples: 45000
+    ignore_classes: []
+    filter_classes: []
+    class_map_from_to: [[5,3], [4, 3], [9,2], [18, 2], [64, 6]] # 64 is facade of building
+  tyrol:
+    num_training_samples: 15000
+    ignore_classes: [1]
+    filter_classes: []
+    class_map_from_to: [[5,3], [4, 3], [8, 15], [11, 17],[9,2]]
+  zurich:
+    num_training_samples: 15000
+    ignore_classes: [3,4,5] # vegetation classes are poor quality, try having 1 as other class
+    filter_classes: []
+    class_map_from_to: [[15, 17], [10, 15]]
+
+training_classes: [2]
+
+# this is a map from the DL prediction output into ASPRS las codes
+# note that the to: class is (dl_output + 1), i.e. -1 (ignore) class becomes 0,
+# 0 (other_class) becomes 1, 1 (training_classes[0]) becomes 2, etc.
+# reverse_class_map: [[0,0], [1,1], [2,2]]
+reverse_class_map: [] # in this case we don't have to change anything!
+
+# idk how these were computed
+rgb_norm:
+  mean:  [0.43923984, 0.44148969, 0.36592241]
+  var_s:  [0.03448181, 0.0231887,  0.01540936]
+  var_p:  [0.03448181, 0.0231887,  0.01540936]
+
+train_transforms:  
+  - transform: XYZFeature
+    params:
+      add_x: False
+      add_y: False
+      add_z: True
+  # - transform: DropFeature
+  #   params:
+  #     drop_proba: 0.2
+  #     feature_name: rgb
+  - transform: AddFeatsByKeys
+    params:
+      feat_names: ${data.feat_names}
+  - transform: GridSampling3D
+    params:
+      size: ${data.resolution}
+      quantize_coords: True
+      mode: "last"
+test_transform:
+  - transform: XYZFeature
+    params:
+      add_x: False
+      add_y: False
+      add_z: True
+  - transform: AddFeatsByKeys
+    params:
+      feat_names: ${data.feat_names}
+  - transform: GridSampling3D
+    params:
+      size: ${data.resolution}
+      quantize_coords: True
+      mode: "last"
+val_transform: ${data.test_transform}

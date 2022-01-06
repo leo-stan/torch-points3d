@@ -1,8 +1,8 @@
 # @package training
 # Ref: https://github.com/chrischoy/SpatioTemporalSegmentation/blob/master/config.py
-epochs: 10
-num_workers: 32
-batch_size: 8
+epochs: 15
+num_workers: 12
+batch_size: 2
 shuffle: False
 cuda: 0
 precompute_multi_scale: False # Compute multiscate features on cpu for faster training / inference
@@ -33,14 +33,16 @@ checkpoint_dir: ""
 # Those arguments within experiment defines which model, dataset and task to be created for benchmarking
 # parameters for Weights and Biases
 wandb:
-  project: COPC-ground-v${data.dataset_version}
+  project: 3class-v${data.dataset_version}
   log: True
   name: ${model_name}
   public: True # It will be display the model within wandb log, else not.
   config:
     resolution: ${data.resolution}
     model_name: ${model_name}
-    #training_classes_weights: ${data.training_classes_weights}
+    training_classes_weights: ${data.training_classes_weights}
+    lr: ${training.optim.base_lr}
+    
 
   # parameters for TensorBoard Visualization
 tensorboard:

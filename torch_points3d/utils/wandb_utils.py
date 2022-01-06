@@ -97,17 +97,20 @@ class Wandb:
                 "splits_%s.json" % (cfg.data.dataset_version),
             )
             dset_dir = os.path.join(wandb.run.dir, "dataset")
-            for dset_name in cfg.data.datasets.keys():
-                dset_name_dir = os.path.join(dset_dir, dset_name)
-                if not os.path.exists(dset_name_dir):
-                    os.makedirs(dset_name_dir)
+            if cfg.data.datasets:
+                for dset_name in cfg.data.datasets.keys():
+                    dset_name_dir = os.path.join(dset_dir, dset_name)
+                    if not os.path.exists(dset_name_dir):
+                        os.makedirs(dset_name_dir)
 
-                real_dset_dir = os.path.join(
-                    cfg.data.dataroot, dset_name, "copc/splits-v%d.json" % (cfg.data.dataset_version)
+                    real_dset_dir = os.path.join(
+                        cfg.data.dataroot, dset_name, "splits-v%d.json" % (cfg.data.dataset_version)
+                    )
+                    shutil.copy(real_dset_dir, dset_name_dir)
+
+                shutil.copy(
+                    os.path.join(cfg.data.dataroot, "dataset-v%d.json" % cfg.data.dataset_version), dset_name_dir
                 )
-                shutil.copy(real_dset_dir, dset_name_dir)
-
-            shutil.copy(os.path.join(cfg.data.dataroot, "dataset-v%d.json" % cfg.data.dataset_version), dset_name_dir)
             # wandb.save(dset_file)
 
             with open("change.patch", "w") as f:

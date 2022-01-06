@@ -19,7 +19,7 @@ data_config["inference_file"] = in_file_path
 
 hUnits = 0.30
 # Load the tiles from copc file
-keys = get_keys(in_file_path, data_config["max_resolution"] / hUnits, data_config["target_tile_size"] / hUnits)
+keys, _ = get_keys(in_file_path, data_config["max_resolution"] / hUnits, data_config["target_tile_size"] / hUnits)
 
 # Instantiate CopcInternalDataset
 dataset_factory = CopcDatasetFactoryInference(DictConfig(data_config), keys, hUnits, hUnits)

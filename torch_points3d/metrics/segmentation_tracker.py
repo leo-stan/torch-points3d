@@ -1,5 +1,6 @@
 from typing import Dict, Any
 import torch
+import wandb
 import numpy as np
 
 from torch_points3d.metrics.confusion_matrix import ConfusionMatrix
@@ -104,3 +105,30 @@ class SegmentationTracker(BaseTracker):
     @property
     def metric_func(self):
         return self._metric_func
+
+    def publish_to_wandb(self, metrics, epoch):
+        super().publish_to_wandb(metrics, epoch)
+
+        # write confusion matrix out to wandb
+        # flatten cm indices
+        cm_indices = np.array(list(np.ndindex(self.confusion_matrix.shape)))
+        # flatten cm values, make 2d
+        cm_num_preds = self.confusion_matrix.flatten().reshape(-1, 1)
+        # merge into a (c^2, c^2, 3) array for number of classes "c"
+        stacked = np.concatenate((cm_indices, cm_num_preds), axis=1)
+
+        fields = {
+            "Actual": "Actual",
+            "Predicted": "Predicted",
+            "nPredictions": "nPredictions",
+        }
+
+        cm = wandb.plot_table(
+            "wandb/confusion_matrix/v1",
+            wandb.Table(columns=["Actual", "Predicted", "nPredictions"], data=stacked),
+            fields,
+            {"title": "Confusion Matrix"},
+        )
+
+        table_name = "%s/conf_mat" % self._stage
+        wandb.log({table_name: cm})

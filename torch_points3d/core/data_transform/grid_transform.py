@@ -49,7 +49,7 @@ def group_data(data, cluster=None, unique_pos_indices=None, mode="last", skip_ke
         Keys of attributes to skip in the grouping
     """
 
-    assert mode in ["mean", "last"]
+    assert mode in ["mean", "last", "last_noshuffle"]
     if mode == "mean" and cluster is None:
         raise ValueError("In mean mode the cluster argument needs to be specified")
     if mode == "last" and unique_pos_indices is None:
@@ -63,7 +63,7 @@ def group_data(data, cluster=None, unique_pos_indices=None, mode="last", skip_ke
             continue
 
         if torch.is_tensor(item) and item.size(0) == num_nodes:
-            if mode == "last" or key == "batch" or key == SaveOriginalPosId.KEY:
+            if mode == "last" or mode == "last_noshuffle" or key == "batch" or key == SaveOriginalPosId.KEY:
                 data[key] = item[unique_pos_indices]
             elif mode == "mean":
                 is_item_bool = item.dtype == torch.bool
@@ -96,10 +96,12 @@ class GridSampling3D:
         If mode is `last`, one random points per cell will be selected with its associated features
     """
 
-    def __init__(self, size, quantize_coords=False, mode="mean", verbose=False):
+    def __init__(self, size, quantize_coords=False, mode="mean", verbose=False, skip_keys=[], grid_start=None):
         self._grid_size = size
         self._quantize_coords = quantize_coords
         self._mode = mode
+        self._skip_keys = skip_keys
+        self._grid_start = grid_start
         if verbose:
             log.warning(
                 "If you need to keep track of the position of your points, use SaveOriginalPosId transform before using GridSampling3D"
@@ -116,12 +118,12 @@ class GridSampling3D:
 
         coords = torch.round((data.pos) / self._grid_size)
         if "batch" not in data:
-            cluster = grid_cluster(coords, torch.tensor([1, 1, 1]))
+            cluster = grid_cluster(coords, torch.tensor([1, 1, 1]), self._grid_start)
         else:
             cluster = voxel_grid(coords, data.batch, 1)
         cluster, unique_pos_indices = consecutive_cluster(cluster)
 
-        data = group_data(data, cluster, unique_pos_indices, mode=self._mode)
+        data = group_data(data, cluster, unique_pos_indices, mode=self._mode, skip_keys=self._skip_keys)
         if self._quantize_coords:
             data.coords = coords[unique_pos_indices].int()
 

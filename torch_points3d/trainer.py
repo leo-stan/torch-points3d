@@ -26,6 +26,11 @@ from torch_points3d.utils.colors import COLORS
 from torch_points3d.utils.wandb_utils import Wandb
 from torch_points3d.visualization import Visualizer
 
+# PyTorch Profiler import
+import torch.profiler
+import torch.autograd.profiler
+from contextlib import nullcontext
+
 log = logging.getLogger(__name__)
 
 
@@ -130,7 +135,7 @@ class Trainer:
         self._model = self._model.to(self._device)
         if self.has_visualization:
             self._visualizer = Visualizer(
-                self._cfg.visualization, self._dataset.num_batches, self._dataset.batch_size, os.getcwd()
+                self._cfg.visualization, self._dataset.num_batches, self._dataset.batch_size, os.getcwd(), self._tracker
             )
 
     def train(self):
@@ -140,6 +145,8 @@ class Trainer:
             log.info("EPOCH %i / %i", epoch, self._cfg.training.epochs)
 
             self._train_epoch(epoch)
+
+            log.info("Current training set class histogram \n%s" % self.train_label_hist)
 
             if self.profiling:
                 return 0
@@ -187,35 +194,54 @@ class Trainer:
         self._visualizer.reset(epoch, "train")
         train_loader = self._dataset.train_dataloader
 
-        iter_data_time = time.time()
-        with Ctq(train_loader) as tq_train_loader:
-            for i, data in enumerate(tq_train_loader):
-                t_data = time.time() - iter_data_time
-                iter_start_time = time.time()
-                self._model.set_input(data, self._device)
-                self._model.optimize_parameters(epoch, self._dataset.batch_size)
-                if i % 10 == 0:
-                    with torch.no_grad():
-                        self._tracker.track(self._model, data=data, **self.tracker_options)
+        self.train_label_hist = {0: 0}
+        self.train_label_hist.update({label: 0 for label in self._cfg.data.training_classes})
 
-                tq_train_loader.set_postfix(
-                    **self._tracker.get_metrics(),
-                    data_loading=float(t_data),
-                    iteration=float(time.time() - iter_start_time),
-                    color=COLORS.TRAIN_COLOR
-                )
+        with self.profiler_profile(epoch) as prof:
+            iter_data_time = time.time()
+            with Ctq(train_loader) as tq_train_loader:
+                for i, data in enumerate(tq_train_loader):
 
-                if self._visualizer.is_active:
-                    self._visualizer.save_visuals(self._model.get_current_visuals())
+                    for hist_batch in data.label_hist:
+                        for label, count in hist_batch.items():
+                            self.train_label_hist[label] += count
 
-                iter_data_time = time.time()
+                    t_data = time.time() - iter_data_time
+                    iter_start_time = time.time()
 
-                if self.early_break:
-                    break
+                    with self.profiler_record_function("train_step"):
+                        self._model.set_input(data, self._device)
+                        self._model.optimize_parameters(epoch, self._dataset.batch_size)
 
-                if self.profiling:
-                    if i > self.num_batches:
-                        return 0
+                    if i % 5 == 0:
+                        torch.cuda.empty_cache()
+
+                    with self.profiler_record_function("track/log/visualize"):
+                        if i % 10 == 0:
+                            with torch.no_grad():
+                                self._tracker.track(self._model, data=data, **self.tracker_options)
+
+                        tq_train_loader.set_postfix(
+                            **self._tracker.get_metrics(),
+                            data_loading=float(t_data),
+                            iteration=float(time.time() - iter_start_time),
+                            color=COLORS.TRAIN_COLOR
+                        )
+
+                        if self._visualizer.is_active:
+                            self._visualizer.save_visuals(self._model.get_current_visuals())
+
+                    iter_data_time = time.time()
+
+                    if self.pytorch_profiler_log:
+                        prof.step()
+
+                    if self.early_break:
+                        break
+
+                    if self.profiling:
+                        if i > self.num_batches:
+                            return 0
 
         self._finalize_epoch(epoch)
 
@@ -241,25 +267,32 @@ class Trainer:
                 log.warning("No forward will be run on dataset %s." % stage_name)
                 continue
 
-            for i in range(voting_runs):
-                with Ctq(loader) as tq_loader:
-                    for data in tq_loader:
-                        with torch.no_grad():
-                            self._model.set_input(data, self._device)
-                            with torch.cuda.amp.autocast(enabled=self._model.is_mixed_precision()):
-                                self._model.forward(epoch=epoch)
-                            self._tracker.track(self._model, data=data, **self.tracker_options)
-                        tq_loader.set_postfix(**self._tracker.get_metrics(), color=COLORS.TEST_COLOR)
+            with self.profiler_profile(epoch) as prof:
+                for i in range(voting_runs):
+                    with Ctq(loader) as tq_loader:
+                        for data in tq_loader:
+                            with torch.no_grad():
+                                with self.profiler_record_function("test_step"):
+                                    self._model.set_input(data, self._device)
+                                    with torch.cuda.amp.autocast(enabled=self._model.is_mixed_precision()):
+                                        self._model.forward(epoch=epoch)
 
-                        if self.has_visualization and self._visualizer.is_active:
-                            self._visualizer.save_visuals(self._model.get_current_visuals())
+                                with self.profiler_record_function("track/log/visualize"):
+                                    self._tracker.track(self._model, data=data, **self.tracker_options)
+                                    tq_loader.set_postfix(**self._tracker.get_metrics(), color=COLORS.TEST_COLOR)
 
-                        if self.early_break:
-                            break
+                                    if self.has_visualization and self._visualizer.is_active:
+                                        self._visualizer.save_visuals(self._model.get_current_visuals())
 
-                        if self.profiling:
-                            if i > self.num_batches:
-                                return 0
+                            if self.pytorch_profiler_log:
+                                prof.step()
+
+                            if self.early_break:
+                                break
+
+                            if self.profiling:
+                                if i > self.num_batches:
+                                    return 0
 
             self._finalize_epoch(epoch)
             self._tracker.print_summary()
@@ -313,6 +346,45 @@ class Trainer:
             return getattr(self._cfg.training.tensorboard, "log", False)
         else:
             return False
+
+    @property
+    def pytorch_profiler_log(self):
+        if self.tensorboard_log:
+            if getattr(self._cfg.training.tensorboard, "pytorch_profiler", False):
+                return getattr(self._cfg.training.tensorboard.pytorch_profiler, "log", False)
+        return False
+
+    # pyTorch Profiler
+    def profiler_profile(self, epoch):
+        if self.pytorch_profiler_log and (
+            getattr(self._cfg.training.tensorboard.pytorch_profiler, "nb_epoch", 3) == 0
+            or epoch <= getattr(self._cfg.training.tensorboard.pytorch_profiler, "nb_epoch", 3)
+        ):
+            return torch.profiler.profile(
+                activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA]
+                if self._cfg.training.cuda > -1
+                else [torch.profiler.ProfilerActivity.CPU],
+                schedule=torch.profiler.schedule(
+                    skip_first=getattr(self._cfg.training.tensorboard.pytorch_profiler, "skip_first", 10),
+                    wait=getattr(self._cfg.training.tensorboard.pytorch_profiler, "wait", 5),
+                    warmup=getattr(self._cfg.training.tensorboard.pytorch_profiler, "warmup", 3),
+                    active=getattr(self._cfg.training.tensorboard.pytorch_profiler, "active", 5),
+                    repeat=getattr(self._cfg.training.tensorboard.pytorch_profiler, "repeat", 0),
+                ),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler(self._tracker._tensorboard_dir),
+                record_shapes=getattr(self._cfg.training.tensorboard.pytorch_profiler, "record_shapes", True),
+                profile_memory=getattr(self._cfg.training.tensorboard.pytorch_profiler, "profile_memory", True),
+                with_stack=getattr(self._cfg.training.tensorboard.pytorch_profiler, "with_stack", True),
+                with_flops=getattr(self._cfg.training.tensorboard.pytorch_profiler, "with_flops", True),
+            )
+        else:
+            return nullcontext(type("", (), {"step": lambda self: None})())
+
+    def profiler_record_function(self, name: str):
+        if self.pytorch_profiler_log:
+            return torch.autograd.profiler.record_function(name)
+        else:
+            return nullcontext()
 
     @property
     def tracker_options(self):

@@ -1,9 +1,22 @@
 # @package _group_
 activate: True
-format: "pointcloud" # image will come later
-num_samples_per_epoch: 1000
+format: ["las"] # "wandb", "las", image will come later
+num_samples_per_epoch: 250
 deterministic: True # False -> Randomly sample elements from epoch to epoch
+deterministic_seed: 0 # If deterministic=True, use this fixed seed for sampling
 saved_keys:
   pos: [['x', 'float'], ['y', 'float'], ['z', 'float']]
   y: [['l', 'float']]
   pred: [['p', 'float']]
+wandb_cmap:
+  - [255, 255, 255] # other class
+  - [92, 64, 51]   # ground
+  - [79, 121, 66] # vegetaion
+  - [238, 75, 43] # building
+  - [128, 0, 128]
+wandb_max_points: 20000
+# wandb_cmap:
+#   - [255, 255, 255]
+#   - [92, 64, 51]
+ply_format: ascii
+compress_las: True

@@ -34,13 +34,12 @@ checkpoint_dir: ""
 # parameters for Weights and Biases
 wandb:
   entity: ""
-  project: scannet
+  project: s3dis-test
   log: True
   notes: "Minkowski baseline"
   name: "Res16UNet34C"
   public: True # It will be display the model within wandb log, else not.
   config:
-    grid_size: ${data.grid_size}
     model_name: ${model_name}
 
   # parameters for TensorBoard Visualization

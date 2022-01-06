@@ -4,9 +4,7 @@ defaults: # for loading the default.yaml config
   - visualization: default
   - lr_scheduler: exponential
   - training: default
-#
   - debugging: default
-  - models: ???
   - data: ???
   - sota # Contains current SOTA results on different datasets (extracted from papers !).
 #  - hydra/job_logging: custom
@@ -18,6 +16,7 @@ update_lr_scheduler_on: "on_epoch" # ["on_epoch", "on_num_batch", "on_num_sample
 selection_stage: ""
 pretty_print: False
 eval_frequency: 1
+random_seed: False
 
 tracker_options: # Extra options for the tracker
   full_res: False

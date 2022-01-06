@@ -11,9 +11,9 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
-in_dir = "/media/nvme/test-data"
-out_dir = "/media/nvme/test-preds"
-checkpoints = "/media/nvme/checkpoints"
+in_dir = "/media/ml1_nvme/test-data"
+out_dir = "/media/ml1_nvme/test-preds"
+checkpoints = "/media/ml1_nvme/checkpoints"
 
 in_files = [x for x in os.listdir(in_dir) if x.lower().endswith((".laz", ".las"))]
 in_files2 = [
