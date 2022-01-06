@@ -470,10 +470,10 @@ class CopcDatasetFactoryInference(BaseDataset):
         }
         splits = {"inference_dset": []}
 
-        for dxy, z_list in keys.items():
+        for dxy, values in keys.items():
             d, x, y = ast.literal_eval(dxy)
             splits["inference_dset"].append(
-                DatasetSample(file="inference_file", dataset="inference_dset", depth=d, x=x, y=y, z=z_list, label_hist={})
+                DatasetSample(file="inference_file", dataset="inference_dset", depth=d, x=x, y=y, z=values["z"], label_hist={})
             )
 
         self.test_dataset = CopcInternalDataset(

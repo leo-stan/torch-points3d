@@ -149,7 +149,7 @@ def compute_dataset_histogram(datafile_path, test_keys, hierarchy, max_depth):
     return valid_tiles
 
 
-def get_keys(datafile_path, max_resolution, target_tile_size, include_label_hist):
+def get_keys(datafile_path, max_resolution, target_tile_size, include_label_hist=False):
     """
     Return keys corresponding to possible tiles at the requested resolution in the octree.
     Args:
