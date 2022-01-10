@@ -22,14 +22,9 @@ def main(cfg):
     else:
         cfg.random_seed = random.randrange(2 ** 32 - 1)
 
-    # Copy the random seed to the dataset options so that the dataloader has access to it
-    cfg.data.random_seed = cfg.random_seed
-
     random.seed(cfg.random_seed)
     np.random.seed(cfg.random_seed)
     torch.manual_seed(cfg.random_seed)
-
-    log.info("Random Seed : {}".format(cfg.random_seed))
 
     trainer = Trainer(cfg)
     trainer.train()

@@ -141,6 +141,8 @@ class Trainer:
     def train(self):
         self._is_training = True
 
+        log.info("Random Seed : {}".format(self._cfg.random_seed))
+
         for epoch in range(self._checkpoint.start_epoch, self._cfg.training.epochs):
             log.info("EPOCH %i / %i", epoch, self._cfg.training.epochs)
 
